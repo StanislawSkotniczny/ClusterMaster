@@ -130,7 +130,10 @@
             <span class="text-xs text-gray-500">Wybierz akcję</span>
           </div>
           <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-            <button class="btn bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 flex flex-col items-center py-3">
+            <button 
+              @click="goToDeployView"
+              class="btn bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 flex flex-col items-center py-3"
+            >
               <span class="mb-1">Nowy klaster</span>
             </button>
             <button class="btn bg-green-50 text-green-700 hover:bg-green-100 border border-green-200 flex flex-col items-center py-3">
@@ -167,5 +170,9 @@ const router = useRouter()
 const logout = async () => {
   await authStore.logout()
   router.push('/sign-in')
+}
+
+const goToDeployView = () => {
+  router.push('/deploy')
 }
 </script>

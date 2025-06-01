@@ -4,6 +4,7 @@ import { useAuthStore } from '../stores/auth'
 import SignIn from '../views/SignIn.vue'
 import Register from '../views/Register.vue'
 import HomeView from '../views/HomeView.vue'
+import DeployView from '../views/DeployView.vue'
 
 const routes = [
   {
@@ -18,6 +19,11 @@ const routes = [
   {
     path: '/sign-in',
     component: SignIn
+  },
+  {
+    path: '/deploy',
+    component: DeployView,
+    meta: { requiresAuth: true }
   },
 ]
 
