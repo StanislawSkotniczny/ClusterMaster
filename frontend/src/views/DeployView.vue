@@ -1,12 +1,50 @@
 <template>
-  <div class="min-h-screen bg-gray-50 py-6 px-4 sm:px-6 lg:px-8">
-    <div class="max-w-7xl mx-auto">
-      <div class="mb-6">
-        <h1 class="text-2xl font-bold text-gray-900 mb-1">Nowy Klaster</h1>
-        <p class="text-sm text-gray-600">Skonfiguruj i utwórz nowy klaster Kubernetes</p>
+  <div class="min-h-screen bg-gray-50 py-8">
+    <div class="max-w-4xl mx-auto px-4">
+      <!-- Loading Overlay -->
+      <div v-if="isLoading" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
+          <div class="text-center">
+            <!-- Spinner -->
+            <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+            
+            <!-- Status Message -->
+            <h3 class="text-lg font-semibold text-gray-900 mb-2">
+              Tworzenie klastra...
+            </h3>
+            <p class="text-sm text-gray-600 mb-4">{{ statusMessage }}</p>
+            
+            <!-- Progress Bar -->
+            <div class="w-full bg-gray-200 rounded-full h-2 mb-4">
+              <div 
+                class="bg-blue-600 h-2 rounded-full transition-all duration-500 ease-out"
+                :style="{ width: `${progress}%` }"
+              ></div>
+            </div>
+            
+            <!-- Progress Percentage -->
+            <div class="text-xs text-gray-500">{{ Math.round(progress) }}%</div>
+            
+            <!-- Anuluj (tylko jeśli nie jest prawie skończone) -->
+            <button 
+              v-if="progress < 90"
+              @click="handleCancel"
+              class="mt-4 text-sm text-gray-500 hover:text-gray-700"
+            >
+              Anuluj
+            </button>
+          </div>
+        </div>
       </div>
-      
-      <form @submit.prevent="handleSubmit" class="bg-white p-6 rounded-xl shadow-lg border border-gray-100">
+
+      <!-- Header -->
+      <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+        <h1 class="text-2xl font-bold text-gray-900 mb-2">Nowy Klaster</h1>
+        <p class="text-gray-600">Skonfiguruj i utwórz nowy klaster Kubernetes</p>
+      </div>
+
+      <!-- Form -->
+      <form @submit.prevent="handleSubmit" class="space-y-6">
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div class="space-y-6">
             <div class="border-b border-gray-100 pb-6">
@@ -309,23 +347,23 @@
           </div>
         </div>
 
-        <div class="flex justify-end items-center pt-6 mt-8 border-t border-gray-100">
-          <button 
-            type="button" 
-            @click="handleCancel" 
-            class="px-5 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors mr-4"
+        <!-- Buttons -->
+        <div class="flex justify-end space-x-4 pt-6 border-t border-gray-200">
+          <button
+            type="button"
+            @click="handleCancel"
+            :disabled="isLoading"
+            class="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Anuluj
           </button>
-          
-          <button 
-            type="submit" 
-            class="px-6 py-2.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-sm flex items-center"
+          <button
+            type="submit"
+            :disabled="isLoading || !form.clusterName"
+            class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-            </svg>
-            Utwórz klaster
+            <span v-if="isLoading" class="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></span>
+            <span>{{ isLoading ? 'Tworzenie...' : '+ Utwórz klaster' }}</span>
           </button>
         </div>
       </form>
@@ -334,21 +372,19 @@
 </template>
 
 <script setup lang="ts">
-import { reactive } from "vue"
-import { defineEmits } from "vue"
+import { reactive, ref } from "vue"
 import { useRouter } from "vue-router"
-
-const emit = defineEmits<{
-  (e: "submitted", config: Record<string, unknown>): void
-}>()
+import { ApiService } from "@/services/api"
 
 const router = useRouter()
+const isLoading = ref(false)
+const progress = ref(0)
+const statusMessage = ref("")
 
 const form = reactive({
-  // wspolne
   provider: "local",
   clusterName: "",
-  nodeCount: 1,
+  nodeCount: 2,
 
   // AWS
   awsRegion: "",
@@ -372,97 +408,100 @@ const form = reactive({
   tags: "",
 })
 
-function handleSubmit() {
+function simulateProgress() {
+  progress.value = 0
+  const interval = setInterval(() => {
+    progress.value += Math.random() * 15
+    if (progress.value >= 95) {
+      progress.value = 95
+      clearInterval(interval)
+    }
+  }, 500)
+  return interval
+}
+
+function validateClusterName(name: string): boolean {
+  const dnsRegex = /^[a-z0-9-]+$/
+  return dnsRegex.test(name) && name.length > 0 && name.length <= 63
+}
+
+async function handleSubmit() {
   if (!form.clusterName) {
     alert("Podaj nazwę klastra.")
     return
   }
+  
+  if (!validateClusterName(form.clusterName)) {
+    alert("Nazwa klastra może zawierać tylko małe litery, cyfry i myślniki (np. 'test-cluster')")
+    return
+  }
+  
   if (form.nodeCount < 1) {
     alert("Liczba węzłów musi być ≥ 1.")
     return
   }
 
-  const config: Record<string, unknown> = {
-    provider: form.provider,
-    cluster_name: form.clusterName,
-    node_count: form.nodeCount,
-  }
+  isLoading.value = true
+  statusMessage.value = "Sprawdzanie środowiska..."
+  const progressInterval = simulateProgress()
 
-  if (form.provider === "aws") {
-    if (!form.awsRegion || !form.instanceType || !form.vpcCidr || !form.awsAccessKey || !form.awsSecretKey) {
-      alert("Wypełnij wszystkie pola AWS.")
-      return
-    }
-    Object.assign(config, {
-      aws_region: form.awsRegion,
-      instance_type: form.instanceType,
-      vpc_cidr: form.vpcCidr,
-      aws_access_key: form.awsAccessKey,
-      aws_secret_key: form.awsSecretKey,
+  try {
+    
+    statusMessage.value = "Sprawdzanie Docker..."
+    await new Promise(resolve => setTimeout(resolve, 500))
+    
+    statusMessage.value = "Sprawdzanie Kind..."
+    await new Promise(resolve => setTimeout(resolve, 500))
+    
+    statusMessage.value = `Tworzenie klastra "${form.clusterName}"...`
+    await new Promise(resolve => setTimeout(resolve, 500))
+    
+    statusMessage.value = "Pobieranie obrazów Kubernetes..."
+    
+    const result = await ApiService.createCluster({
+      cluster_name: form.clusterName,
+      node_count: form.nodeCount,
     })
-  } else {
-    if (!form.kubeconfigPath) {
-      alert("Podaj ścieżkę kubeconfig.")
-      return
-    }
-    Object.assign(config, {
-      kubeconfig_path: form.kubeconfigPath,
+    
+    
+    clearInterval(progressInterval)
+    progress.value = 100
+    statusMessage.value = "Klaster utworzony pomyślnie!"
+    
+    
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    
+    
+    router.push({
+      path: "/",
+      query: { 
+        success: "true", 
+        cluster: form.clusterName,
+        message: result.message 
+      }
     })
+    
+  } catch (error: any) {
+    clearInterval(progressInterval)
+    progress.value = 0
+    statusMessage.value = `Błąd: ${error.message}`
+    console.error("Błąd tworzenia klastra:", error)
+    
+    
+    setTimeout(() => {
+      isLoading.value = false
+      statusMessage.value = ""
+    }, 3000)
   }
-  if (!form.cpu && !form.memory && !form.disk) {
-    if (form.clusterProfile === "developerski") {
-      form.cpu = 2
-      form.memory = 4
-      form.disk = 50
-    } else if (form.clusterProfile === "testowy") {
-      form.cpu = 4
-      form.memory = 8
-      form.disk = 100
-    } else if (form.clusterProfile === "produkcyjny") {
-      form.cpu = 8
-      form.memory = 16
-      form.disk = 200
-    }
-  }
-
-  if (form.cpu && form.memory && form.disk) {
-    Object.assign(config, {
-      cpu: form.cpu,
-      memory: form.memory,
-      disk: form.disk,
-    })
-  }
-
-
-  if (form.k8sVersion) {
-    config.k8s_version = form.k8sVersion
-  }
-  if (form.enableAutoscaling) {
-    if (form.minNodes < 1 || form.maxNodes < form.minNodes) {
-      alert("Sprawdź wartości min/max dla autoskalowania.")
-      return
-    }
-    Object.assign(config, {
-      enable_autoscaling: true,
-      min_nodes: form.minNodes,
-      max_nodes: form.maxNodes,
-    })
-  }
-  if (form.tags) {
-    const tagsObj: Record<string, string> = {}
-    form.tags.split(",").forEach(pair => {
-      const [k, v] = pair.split("=")
-      if (k && v) tagsObj[k.trim()] = v.trim()
-    })
-    config.tags = tagsObj
-  }
-
-
-  emit("submitted", config)
 }
 
 function handleCancel() {
-  router.push("/")  
+  if (isLoading.value) {
+    if (!confirm("Tworzenie klastra jest w toku. Czy na pewno chcesz anulować?")) {
+      return
+    }
+  }
+  router.push("/")
 }
 </script>
 
