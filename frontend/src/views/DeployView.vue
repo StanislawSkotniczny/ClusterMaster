@@ -416,7 +416,7 @@ function simulateProgress() {
       progress.value = 95
       clearInterval(interval)
     }
-  }, 500)
+  }, 1000)
   return interval
 }
 
@@ -446,11 +446,11 @@ async function handleSubmit() {
   const progressInterval = simulateProgress()
 
   try {
+    // First check if backend is available
+    statusMessage.value = "Łączenie z API..."
+    await ApiService.healthCheck()
     
-    statusMessage.value = "Sprawdzanie Docker..."
-    await new Promise(resolve => setTimeout(resolve, 500))
-    
-    statusMessage.value = "Sprawdzanie Kind..."
+    statusMessage.value = "Sprawdzanie Docker i Kind..."
     await new Promise(resolve => setTimeout(resolve, 500))
     
     statusMessage.value = `Tworzenie klastra "${form.clusterName}"...`
@@ -458,20 +458,21 @@ async function handleSubmit() {
     
     statusMessage.value = "Pobieranie obrazów Kubernetes..."
     
+    // Create cluster with proper parameters
     const result = await ApiService.createCluster({
       cluster_name: form.clusterName,
       node_count: form.nodeCount,
+      k8s_version: form.k8sVersion || undefined
     })
-    
     
     clearInterval(progressInterval)
     progress.value = 100
     statusMessage.value = "Klaster utworzony pomyślnie!"
     
+    // Wait a bit to show success
+    await new Promise(resolve => setTimeout(resolve, 1500))
     
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    
-    
+    // Navigate to home with success message
     router.push({
       path: "/",
       query: { 
@@ -487,7 +488,7 @@ async function handleSubmit() {
     statusMessage.value = `Błąd: ${error.message}`
     console.error("Błąd tworzenia klastra:", error)
     
-    
+    // Show error for 3 seconds
     setTimeout(() => {
       isLoading.value = false
       statusMessage.value = ""
