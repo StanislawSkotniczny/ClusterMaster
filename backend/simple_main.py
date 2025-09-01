@@ -6,6 +6,7 @@ import shutil
 import tempfile
 import yaml
 import json
+from app.services.helm_service import helm_service
 
 app = FastAPI(title="ClusterMaster API", version="1.0.0")
 
@@ -79,25 +80,43 @@ def run_kind_command(args, timeout=30):
             "stderr": str(e)
         }
 
-def create_kind_config(cluster_name: str, node_count: int) -> str:
-    """Utwórz plik konfiguracyjny Kind dla klastra z wieloma węzłami"""
-    
-    # Podstawowa konfiguracja z control-plane
-    nodes = [{"role": "control-plane"}]
-    
-    # Dodaj worker nodes (node_count - 1, bo control-plane już mamy)
-    for i in range(node_count - 1):
-        nodes.append({"role": "worker"})
+def create_kind_config(cluster_name, node_count):
+    """Utwórz plik konfiguracyjny Kind z mapowaniem portów dla monitoringu"""
     
     config = {
         "kind": "Cluster",
         "apiVersion": "kind.x-k8s.io/v1alpha4",
-        "nodes": nodes
+        "nodes": []
     }
     
-    # Utwórz tymczasowy plik
+    # Control plane z mapowaniem portów dla NodePort monitoringu
+    control_plane_node = {
+        "role": "control-plane",
+        "extraPortMappings": [
+            {
+                "containerPort": 30090,  # Prometheus NodePort
+                "hostPort": 30090,       # Host port dla Prometheus
+                "protocol": "TCP"
+            },
+            {
+                "containerPort": 30030,  # Grafana NodePort  
+                "hostPort": 30030,       # Host port dla Grafana
+                "protocol": "TCP"
+            }
+        ]
+    }
+    config["nodes"].append(control_plane_node)
+    
+    # Dodaj worker nodes (bez mapowania portów)
+    for i in range(node_count - 1):
+        config["nodes"].append({"role": "worker"})
+    
+    # Zapisz konfigurację do tymczasowego pliku
+    import tempfile
     with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-        yaml.dump(config, f)
+        yaml.dump(config, f, default_flow_style=False)
+        print(f"Created Kind config: {f.name}")
+        print(f"Config content: {config}")
         return f.name
 
 @app.get("/")
@@ -179,9 +198,14 @@ async def list_clusters():
 @app.post("/api/v1/local-cluster/create")
 async def create_cluster(cluster_data: dict):
     """Utwórz nowy klaster Kind"""
+    print(f"DEBUG: Received request: {cluster_data}")  # Debug
+    
     cluster_name = cluster_data.get("cluster_name", "test-cluster")
     node_count = cluster_data.get("node_count", 1)
     k8s_version = cluster_data.get("k8s_version")
+    install_monitoring = cluster_data.get("install_monitoring", False)  # <-- DODAJ TO
+    
+    print(f"DEBUG: Install monitoring = {install_monitoring}")  # Debug
     
     # Sprawdź czy klaster już istnieje
     result = run_kind_command(["get", "clusters"])
@@ -196,6 +220,7 @@ async def create_cluster(cluster_data: dict):
     try:
         # Utwórz konfigurację dla wielu węzłów
         config_file = None
+        
         args = ["create", "cluster", "--name", cluster_name]
         
         if node_count > 1:
@@ -220,24 +245,52 @@ async def create_cluster(cluster_data: dict):
         if result["returncode"] != 0:
             return {
                 "error": f"Nie udało się utworzyć klastra: {result['stderr']}",
-                "debug": result,
-                "cluster_name": cluster_name,
-                "requested_nodes": node_count
+                "debug": result
             }
         
-        return {
-            "message": f"Klaster {cluster_name} utworzony pomyślnie z {node_count} węzłami",
-            "status": "created",
+        cluster_result = {
+            "message": f"Klaster {cluster_name} został utworzony z {node_count} węzłami",
+            "status": "success", 
             "cluster_name": cluster_name,
             "node_count": node_count,
-            "timeout_used": "600s dla multi-node klastra"
+            "context": f"kind-{cluster_name}"
         }
+        
+        # DODAJ INSTALACJĘ MONITORINGU JEŚLI ZAZNACZONE
+        if install_monitoring:
+            print(f"Installing monitoring for cluster {cluster_name}...")
+            
+            # Poczekaj na gotowość klastra
+            import time
+            time.sleep(15)  # 15 sekund na inicjalizację
+            
+            try:
+                # Zainstaluj monitoring
+                monitoring_result = helm_service.install_monitoring_stack(cluster_name)
+                print(f"Monitoring result: {monitoring_result}")
+                
+                if monitoring_result.get("success"):
+                    cluster_result["message"] += " + monitoring zainstalowany"
+                    cluster_result["monitoring"] = {
+                        "installed": True,
+                        "prometheus": "kubectl port-forward svc/prometheus-server 9090:80 -n monitoring",
+                        "grafana": "kubectl port-forward svc/grafana 3000:80 -n monitoring (admin/admin123)"
+                    }
+                else:
+                    cluster_result["message"] += " + problem z monitoringiem"
+                    cluster_result["monitoring_error"] = monitoring_result.get("error", "Unknown error")
+                    
+            except Exception as e:
+                print(f"Monitoring installation error: {str(e)}")
+                cluster_result["message"] += " + błąd monitoringu"
+                cluster_result["monitoring_error"] = str(e)
+        
+        return cluster_result
         
     except Exception as e:
         return {
-            "error": f"Wystąpił błąd podczas tworzenia klastra: {str(e)}",
-            "cluster_name": cluster_name,
-            "requested_nodes": node_count
+            "error": f"Błąd podczas tworzenia klastra: {str(e)}",
+            "cluster_name": cluster_name
         }
 
 @app.delete("/api/v1/local-cluster/{cluster_name}")
@@ -546,4 +599,107 @@ async def get_cluster_profile(cluster_name: str):
         return {
             "cluster_name": cluster_name,
             "error": f"Nie można określić profilu klastra: {str(e)}"
+        }
+
+# Dodaj endpoint do automatycznej instalacji monitoringu przy tworzeniu klastra
+@app.post("/api/v1/local-cluster/create-with-monitoring")
+async def create_cluster_with_monitoring(cluster_data: dict):
+    """Utwórz klaster z automatyczną instalacją monitoringu"""
+    
+    # Najpierw utwórz klaster
+    cluster_result = await create_cluster(cluster_data)
+    
+    if "error" in cluster_result:
+        return cluster_result
+    
+    cluster_name = cluster_data.get("cluster_name", "test-cluster")
+    install_monitoring = cluster_data.get("install_monitoring", False)
+    
+    if not install_monitoring:
+        return cluster_result
+    
+    try:
+        # Poczekaj chwilę aż klaster będzie gotowy
+        import asyncio
+        await asyncio.sleep(30)  # 30 sekund na inicjalizację
+        
+        # Zainstaluj monitoring
+        monitoring_result = helm_service.install_monitoring_stack(cluster_name)
+        
+        return {
+            **cluster_result,
+            "monitoring": monitoring_result,
+            "message": f"{cluster_result['message']} + monitoring stack zainstalowany"
+        }
+        
+    except Exception as e:
+        return {
+            **cluster_result,
+            "monitoring_error": f"Klaster utworzony, ale monitoring nie został zainstalowany: {str(e)}"
+        }
+
+# Zastąp istniejące endpointy monitoringu:
+@app.post("/api/v1/monitoring/install/{cluster_name}")
+async def install_monitoring_endpoint(cluster_name: str):
+    """Zainstaluj monitoring w istniejącym klastrze"""
+    try:
+        result = helm_service.install_monitoring_stack(cluster_name)
+        return {
+            "cluster_name": cluster_name,
+            **result
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Błąd instalacji monitoringu: {str(e)}"
+        }
+
+@app.get("/api/v1/monitoring/status/{cluster_name}")
+async def get_monitoring_status_endpoint(cluster_name: str):
+    """Sprawdź status monitoringu"""
+    try:
+        context = f"kind-{cluster_name}"
+        
+        # Sprawdź pody monitoringu
+        kubectl_result = subprocess.run([
+            "kubectl", "get", "pods", 
+            "--namespace", "monitoring",
+            "--context", context,
+            "-o", "json"
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+        
+        if kubectl_result.returncode != 0:
+            return {
+                "cluster_name": cluster_name,
+                "monitoring_installed": False,
+                "message": "Monitoring nie jest zainstalowany"
+            }
+        
+        import json
+        pods_data = json.loads(kubectl_result.stdout)
+        
+        prometheus_pods = len([p for p in pods_data.get("items", []) if "prometheus" in p["metadata"]["name"]])
+        grafana_pods = len([p for p in pods_data.get("items", []) if "grafana" in p["metadata"]["name"]])
+        running_pods = len([p for p in pods_data.get("items", []) if p["status"]["phase"] == "Running"])
+        total_pods = len(pods_data.get("items", []))
+        
+        return {
+            "cluster_name": cluster_name,
+            "monitoring_installed": True,
+            "namespace": "monitoring",
+            "total_pods": total_pods,
+            "running_pods": running_pods,
+            "prometheus_pods": prometheus_pods,
+            "grafana_pods": grafana_pods,
+            "status": "healthy" if total_pods > 0 and running_pods == total_pods else "starting",
+            "access_info": {
+                "prometheus": f"kubectl port-forward svc/prometheus-server 9090:80 -n monitoring --context {context}",
+                "grafana": f"kubectl port-forward svc/grafana 3000:80 -n monitoring --context {context} (admin/admin123)"
+            }
+        }
+        
+    except Exception as e:
+        return {
+            "cluster_name": cluster_name,
+            "error": f"Błąd sprawdzania statusu: {str(e)}"
         }

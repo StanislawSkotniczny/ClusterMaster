@@ -67,4 +67,15 @@ export class ApiService {
     static async debugKind() {
         return this.request('/debug/kind')
     }
+
+    // Monitoring
+    static async installMonitoring(clusterName: string) {
+        return this.request(`/monitoring/install/${clusterName}`, {
+            method: 'POST',
+        })
+    }
+
+    static async getMonitoringStatus(clusterName: string) {
+        return this.request(`/monitoring/status/${clusterName}`)
+    }
 }

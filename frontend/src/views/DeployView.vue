@@ -344,6 +344,26 @@
                 </div>
               </div>
             </details>
+
+            <!-- Dodaj po sekcji z opcjami zaawansowanymi -->
+            <div class="bg-blue-50 p-4 rounded-lg border border-blue-200 mt-6">
+              <label class="flex items-start">
+                <input 
+                  type="checkbox" 
+                  v-model="form.installMonitoring" 
+                  class="mt-1 mr-3 rounded text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <span class="font-medium text-blue-800">🔍 Zainstaluj stack monitoringu</span>
+                  <p class="text-sm text-blue-700 mt-1">
+                    Automatycznie zainstaluje Prometheus i Grafana po utworzeniu klastra przy użyciu Helm
+                  </p>
+                  <p class="text-xs text-blue-600 mt-1">
+                    📊 Prometheus: http://localhost:30900 | 📈 Grafana: http://localhost:30300 (admin/admin123)
+                  </p>
+                </div>
+              </label>
+            </div>
           </div>
         </div>
 
@@ -406,6 +426,7 @@ const form = reactive({
   minNodes: 1,
   maxNodes: 1,
   tags: "",
+  installMonitoring: false,
 })
 
 function simulateProgress() {
@@ -454,20 +475,28 @@ async function handleSubmit() {
     await new Promise(resolve => setTimeout(resolve, 500))
     
     statusMessage.value = `Tworzenie klastra "${form.clusterName}"...`
-    await new Promise(resolve => setTimeout(resolve, 500))
+    if (form.installMonitoring) {
+      statusMessage.value += " (z monitoringiem)"
+    }
     
-    statusMessage.value = "Pobieranie obrazów Kubernetes..."
-    
-    // Create cluster with proper parameters
-    const result = await ApiService.createCluster({
+    // Create cluster with monitoring flag
+    const clusterData = {
       cluster_name: form.clusterName,
       node_count: form.nodeCount,
-      k8s_version: form.k8sVersion || undefined
-    })
+      k8s_version: form.k8sVersion || undefined,
+      install_monitoring: form.installMonitoring  // Backend obsłuży instalację
+    }
+    
+    const result = await ApiService.createCluster(clusterData)
     
     clearInterval(progressInterval)
     progress.value = 100
-    statusMessage.value = "Klaster utworzony pomyślnie!"
+    
+    if (result.status === 'success' || result.message) {
+      statusMessage.value = result.message || "Klaster utworzony pomyślnie!"
+    } else {
+      throw new Error("Nieznany błąd podczas tworzenia klastra")
+    }
     
     // Wait a bit to show success
     await new Promise(resolve => setTimeout(resolve, 1500))
@@ -478,7 +507,8 @@ async function handleSubmit() {
       query: { 
         success: "true", 
         cluster: form.clusterName,
-        message: result.message 
+        message: result.message,
+        monitoring: form.installMonitoring ? "true" : "false"
       }
     })
     
