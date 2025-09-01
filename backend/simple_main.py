@@ -7,6 +7,7 @@ import tempfile
 import yaml
 import json
 from app.services.helm_service import helm_service
+from app.services.port_manager import port_manager
 
 app = FastAPI(title="ClusterMaster API", version="1.0.0")
 
@@ -80,7 +81,7 @@ def run_kind_command(args, timeout=30):
             "stderr": str(e)
         }
 
-def create_kind_config(cluster_name, node_count):
+def create_kind_config(cluster_name, node_count, cluster_ports=None):
     """Utwórz plik konfiguracyjny Kind z mapowaniem portów dla monitoringu"""
     
     config = {
@@ -92,7 +93,26 @@ def create_kind_config(cluster_name, node_count):
     # Control plane z mapowaniem portów dla NodePort monitoringu
     control_plane_node = {
         "role": "control-plane",
-        "extraPortMappings": [
+        "extraPortMappings": []
+    }
+    
+    # Jeśli podano porty, użyj ich, inaczej użyj domyślnych
+    if cluster_ports:
+        control_plane_node["extraPortMappings"] = [
+            {
+                "containerPort": cluster_ports["prometheus"],
+                "hostPort": cluster_ports["prometheus"],
+                "protocol": "TCP"
+            },
+            {
+                "containerPort": cluster_ports["grafana"],
+                "hostPort": cluster_ports["grafana"],
+                "protocol": "TCP"
+            }
+        ]
+    else:
+        # Domyślne porty dla backward compatibility
+        control_plane_node["extraPortMappings"] = [
             {
                 "containerPort": 30090,  # Prometheus NodePort
                 "hostPort": 30090,       # Host port dla Prometheus
@@ -104,7 +124,7 @@ def create_kind_config(cluster_name, node_count):
                 "protocol": "TCP"
             }
         ]
-    }
+    
     config["nodes"].append(control_plane_node)
     
     # Dodaj worker nodes (bez mapowania portów)
@@ -218,13 +238,16 @@ async def create_cluster(cluster_data: dict):
         }
     
     try:
+        # Przypisz porty dla klastra przed utworzeniem
+        cluster_ports = port_manager.assign_ports_for_cluster(cluster_name)
+        
         # Utwórz konfigurację dla wielu węzłów
         config_file = None
         
         args = ["create", "cluster", "--name", cluster_name]
         
         if node_count > 1:
-            config_file = create_kind_config(cluster_name, node_count)
+            config_file = create_kind_config(cluster_name, node_count, cluster_ports)
             args.extend(["--config", config_file])
         
         # Dodaj wersję Kubernetes jeśli określona
@@ -253,7 +276,8 @@ async def create_cluster(cluster_data: dict):
             "status": "success", 
             "cluster_name": cluster_name,
             "node_count": node_count,
-            "context": f"kind-{cluster_name}"
+            "context": f"kind-{cluster_name}",
+            "assigned_ports": cluster_ports
         }
         
         # DODAJ INSTALACJĘ MONITORINGU JEŚLI ZAZNACZONE
@@ -273,8 +297,10 @@ async def create_cluster(cluster_data: dict):
                     cluster_result["message"] += " + monitoring zainstalowany"
                     cluster_result["monitoring"] = {
                         "installed": True,
-                        "prometheus": "kubectl port-forward svc/prometheus-server 9090:80 -n monitoring",
-                        "grafana": "kubectl port-forward svc/grafana 3000:80 -n monitoring (admin/admin123)"
+                        "prometheus_url": f"http://localhost:{cluster_ports['prometheus']}",
+                        "grafana_url": f"http://localhost:{cluster_ports['grafana']}",
+                        "grafana_credentials": "admin/admin123",
+                        "access_info": monitoring_result.get("access_info", {})
                     }
                 else:
                     cluster_result["message"] += " + problem z monitoringiem"
@@ -296,6 +322,10 @@ async def create_cluster(cluster_data: dict):
 @app.delete("/api/v1/local-cluster/{cluster_name}")
 async def delete_cluster(cluster_name: str):
     """Usuń klaster Kind"""
+    
+    # Najpierw wyczyść zasoby monitoringu
+    cleanup_result = helm_service.cleanup_cluster_resources(cluster_name)
+    
     result = run_kind_command(["delete", "cluster", "--name", cluster_name])
     
     if result["returncode"] != 0:
@@ -304,7 +334,10 @@ async def delete_cluster(cluster_name: str):
             "debug": result
         }
     
-    return {"message": f"Klaster {cluster_name} został usunięty"}
+    return {
+        "message": f"Klaster {cluster_name} został usunięty",
+        "cleanup": cleanup_result
+    }
 
 @app.get("/api/v1/local-cluster/{cluster_name}/status")
 async def get_cluster_status(cluster_name: str):

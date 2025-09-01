@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, Optional
 from app.services.helm_service import helm_service
+from app.services.port_manager import port_manager
 import subprocess
 
 router = APIRouter()
@@ -140,9 +141,10 @@ async def get_monitoring_status(cluster_name: str, namespace: str = "monitoring"
                 "running": len([p for p in grafana_pods if p["status"] == "Running"])
             },
             "services": services_info,
+            "port_info": port_manager.get_cluster_urls(cluster_name),
             "access_info": {
-                "prometheus": "kubectl port-forward svc/prometheus-server 9090:80 -n monitoring",
-                "grafana": "kubectl port-forward svc/grafana 3000:80 -n monitoring (admin/admin123)"
+                "note": "Użyj portów przypisanych dla tego klastra",
+                "check_ports": f"/api/v1/monitoring/ports/{cluster_name}"
             }
         }
         
@@ -168,6 +170,9 @@ async def uninstall_monitoring(cluster_name: str, namespace: str = "monitoring")
         prometheus_result = helm_service.uninstall_release("prometheus", cluster_name, namespace)
         results.append({"service": "prometheus", **prometheus_result})
         
+        # Wyczyść zasoby klastra (port-forward i porty)
+        cleanup_result = helm_service.cleanup_cluster_resources(cluster_name)
+        
         # Usuń namespace (opcjonalnie)
         kubectl_result = subprocess.run([
             "kubectl", "delete", "namespace", namespace,
@@ -179,6 +184,7 @@ async def uninstall_monitoring(cluster_name: str, namespace: str = "monitoring")
             "namespace": namespace,
             "status": "uninstalled",
             "results": results,
+            "cleanup": cleanup_result,
             "namespace_deleted": kubectl_result.returncode == 0
         }
         
@@ -206,4 +212,84 @@ async def list_helm_releases(cluster_name: str, namespace: str = None):
         raise HTTPException(
             status_code=500,
             detail=f"Błąd podczas pobierania listy releases: {str(e)}"
+        )
+
+@router.get("/ports/{cluster_name}")
+async def get_cluster_ports(cluster_name: str):
+    """
+    Pobierz informacje o portach dla klastra
+    """
+    try:
+        monitoring_info = helm_service.get_cluster_monitoring_info(cluster_name)
+        
+        if not monitoring_info:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Klaster {cluster_name} nie ma przypisanych portów"
+            )
+        
+        return monitoring_info
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Błąd podczas pobierania portów: {str(e)}"
+        )
+
+@router.get("/ports")
+async def list_all_cluster_ports():
+    """
+    Lista wszystkich przypisanych portów dla wszystkich klastrów
+    """
+    try:
+        assignments = port_manager.list_all_assignments()
+        
+        # Dodaj informacje o URL-ach dla każdego klastra
+        enriched_assignments = {}
+        for cluster_name, ports in assignments.items():
+            urls = port_manager.get_cluster_urls(cluster_name)
+            enriched_assignments[cluster_name] = {
+                "ports": ports,
+                "urls": urls,
+                "port_forward_active": cluster_name in helm_service.port_forward_threads
+            }
+        
+        return {
+            "total_clusters": len(assignments),
+            "clusters": enriched_assignments
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Błąd podczas pobierania listy portów: {str(e)}"
+        )
+
+@router.post("/ports/{cluster_name}/release")
+async def release_cluster_ports(cluster_name: str):
+    """
+    Zwolnij porty dla klastra (używaj ostrożnie!)
+    """
+    try:
+        success = port_manager.release_cluster_ports(cluster_name)
+        
+        if not success:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Klaster {cluster_name} nie ma przypisanych portów"
+            )
+        
+        return {
+            "message": f"Porty dla klastra {cluster_name} zostały zwolnione",
+            "cluster_name": cluster_name
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Błąd podczas zwalniania portów: {str(e)}"
         )

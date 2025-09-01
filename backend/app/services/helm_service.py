@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Optional
 from pathlib import Path
 import threading
 import time
+from .port_manager import port_manager
 
 class HelmService:
     def __init__(self):
@@ -71,6 +72,9 @@ class HelmService:
         try:
             context = f"kind-{cluster_name}"
             
+            # Przypisz porty dla klastra
+            cluster_ports = port_manager.assign_ports_for_cluster(cluster_name)
+            
             # 1. Dodaj repozytoria Helm
             repos_to_add = [
                 ("prometheus-community", "https://prometheus-community.github.io/helm-charts"),
@@ -106,14 +110,14 @@ class HelmService:
             ], capture_output=True, text=True)
             # Ignoruj błąd jeśli namespace już istnieje
             
-            # 4. Zainstaluj Prometheus
-            prometheus_result = self.install_prometheus(cluster_name, namespace, context)
+            # 4. Zainstaluj Prometheus z dynamicznym portem
+            prometheus_result = self.install_prometheus(cluster_name, namespace, context, cluster_ports["prometheus"])
             
             if not prometheus_result["success"]:
                 return prometheus_result
             
-            # 5. Zainstaluj Grafana
-            grafana_result = self.install_grafana(cluster_name, namespace, context)
+            # 5. Zainstaluj Grafana z dynamicznym portem
+            grafana_result = self.install_grafana(cluster_name, namespace, context, cluster_ports["grafana"])
             
             if not grafana_result["success"]:
                 return grafana_result
@@ -121,33 +125,34 @@ class HelmService:
             # Po instalacji, uruchom automatyczne port-forward
             if prometheus_result["success"] and grafana_result["success"]:
                 # Uruchom port-forward w tle po instalacji
-                self.start_background_port_forward(cluster_name, namespace)
+                self.start_background_port_forward(cluster_name, namespace, cluster_ports)
                 
                 return {
                     "success": True,
                     "message": "Stack monitoringu zainstalowany pomyślnie",
                     "services": {
-                        "prometheus": "http://localhost:30090",
-                        "grafana": "http://localhost:30030 (admin/admin123)"
+                        "prometheus": f"http://localhost:{cluster_ports['prometheus']}",
+                        "grafana": f"http://localhost:{cluster_ports['grafana']} (admin/admin123)"
                     },
                     "access_info": {
-                        "prometheus_url": "http://localhost:30090",
-                        "grafana_url": "http://localhost:30030",
-                        "grafana_credentials": "admin / admin123"
+                        "prometheus_url": f"http://localhost:{cluster_ports['prometheus']}",
+                        "grafana_url": f"http://localhost:{cluster_ports['grafana']}",
+                        "grafana_credentials": "admin / admin123",
+                        "assigned_ports": cluster_ports
                     },
                     "namespace": namespace
                 }
         except Exception as e:
             return {"success": False, "error": str(e)}
     
-    def install_prometheus(self, cluster_name: str, namespace: str, context: str) -> Dict[str, Any]:
-        """Zainstaluj Prometheus z NodePort"""
+    def install_prometheus(self, cluster_name: str, namespace: str, context: str, node_port: int) -> Dict[str, Any]:
+        """Zainstaluj Prometheus z dynamicznym NodePort"""
         
         prometheus_values = {
             "server": {
                 "service": {
                     "type": "NodePort",
-                    "nodePort": 30090  # Port mapowany w Kind config
+                    "nodePort": node_port
                 }
             },
             "alertmanager": {"enabled": False},
@@ -164,13 +169,13 @@ class HelmService:
             context=context
         )
     
-    def install_grafana(self, cluster_name: str, namespace: str, context: str) -> Dict[str, Any]:
-        """Zainstaluj Grafana z NodePort"""
+    def install_grafana(self, cluster_name: str, namespace: str, context: str, node_port: int) -> Dict[str, Any]:
+        """Zainstaluj Grafana z dynamicznym NodePort"""
         
         grafana_values = {
             "service": {
                 "type": "NodePort",
-                "nodePort": 30030  # Port mapowany w Kind config
+                "nodePort": node_port
             },
             "adminPassword": "admin123",
             "datasources": {
@@ -235,8 +240,8 @@ class HelmService:
             except:
                 pass
     
-    def start_background_port_forward(self, cluster_name: str, namespace: str):
-        """Uruchom port-forward w tle jako daemon"""
+    def start_background_port_forward(self, cluster_name: str, namespace: str, cluster_ports: Dict[str, int]):
+        """Uruchom port-forward w tle jako daemon z dynamicznymi portami"""
         def run_port_forward():
             context = f"kind-{cluster_name}"
             
@@ -245,28 +250,29 @@ class HelmService:
             time.sleep(45)  # Daj więcej czasu na startup
             
             try:
-                # Uruchom Prometheus port-forward
+                # Uruchom Prometheus port-forward z dynamicznym portem
                 prometheus_proc = subprocess.Popen([
                     "kubectl", "port-forward", 
-                    "service/prometheus-server", "9090:80",
+                    "service/prometheus-server", f"{cluster_ports['prometheus']}:80",
                     "-n", namespace, "--context", context
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                # Uruchom Grafana port-forward
+                # Uruchom Grafana port-forward z dynamicznym portem
                 grafana_proc = subprocess.Popen([
                     "kubectl", "port-forward",
-                    "service/grafana", "3000:80",
+                    "service/grafana", f"{cluster_ports['grafana']}:80",
                     "-n", namespace, "--context", context  
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                print(f"✅ Monitoring dostępny:")
-                print(f"📊 Prometheus: http://localhost:9090")
-                print(f"📈 Grafana: http://localhost:3000 (admin/admin123)")
+                print(f"✅ Monitoring dostępny dla klastra {cluster_name}:")
+                print(f"📊 Prometheus: http://localhost:{cluster_ports['prometheus']}")
+                print(f"📈 Grafana: http://localhost:{cluster_ports['grafana']} (admin/admin123)")
                 
                 # Zapisz procesy (opcjonalnie)
                 self.port_forward_threads[cluster_name] = {
                     "prometheus": prometheus_proc,
-                    "grafana": grafana_proc
+                    "grafana": grafana_proc,
+                    "ports": cluster_ports
                 }
                 
                 # Czekaj na zakończenie (daemon)
@@ -279,7 +285,121 @@ class HelmService:
         # Uruchom w osobnym wątku jako daemon
         thread = threading.Thread(target=run_port_forward, daemon=True)
         thread.start()
-        print(f"Started background port-forward for {cluster_name}")
+        print(f"Started background port-forward for {cluster_name} on ports {cluster_ports}")
+
+    def cleanup_cluster_resources(self, cluster_name: str) -> Dict[str, Any]:
+        """Wyczyść zasoby klastra (port-forward i porty)"""
+        try:
+            # Zatrzymaj port-forward procesy
+            if cluster_name in self.port_forward_threads:
+                processes = self.port_forward_threads[cluster_name]
+                
+                for service_name, proc in processes.items():
+                    if service_name != "ports" and hasattr(proc, 'terminate'):
+                        try:
+                            proc.terminate()
+                        except:
+                            pass
+                
+                del self.port_forward_threads[cluster_name]
+            
+            # Zwolnij porty w port_manager
+            port_manager.release_cluster_ports(cluster_name)
+            
+            return {
+                "success": True,
+                "message": f"Zasoby klastra {cluster_name} zostały wyczyszczone"
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Błąd podczas czyszczenia zasobów: {str(e)}"
+            }
+
+    def get_cluster_monitoring_info(self, cluster_name: str) -> Optional[Dict[str, Any]]:
+        """Pobierz informacje o monitoringu dla klastra"""
+        ports = port_manager.get_cluster_ports(cluster_name)
+        if not ports:
+            return None
+        
+        return {
+            "cluster_name": cluster_name,
+            "ports": ports,
+            "urls": port_manager.get_cluster_urls(cluster_name),
+            "port_forward_active": cluster_name in self.port_forward_threads
+        }
+
+    def uninstall_release(self, release_name: str, cluster_name: str, namespace: str) -> Dict[str, Any]:
+        """Usuń Helm release"""
+        try:
+            context = f"kind-{cluster_name}"
+            
+            result = self.run_helm_command([
+                "uninstall", release_name,
+                "--namespace", namespace,
+                "--kube-context", context
+            ])
+            
+            if result["success"]:
+                return {
+                    "success": True,
+                    "message": f"Release {release_name} został usunięty",
+                    "release": release_name,
+                    "namespace": namespace
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Nie udało się usunąć release {release_name}: {result['stderr']}"
+                }
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Błąd podczas usuwania release: {str(e)}"
+            }
+
+    def list_releases(self, cluster_name: str, namespace: Optional[str] = None) -> Dict[str, Any]:
+        """Lista Helm releases w klastrze"""
+        try:
+            context = f"kind-{cluster_name}"
+            
+            args = ["list", "--kube-context", context, "-o", "json"]
+            if namespace:
+                args.extend(["--namespace", namespace])
+            else:
+                args.append("--all-namespaces")
+            
+            result = self.run_helm_command(args)
+            
+            if result["success"]:
+                import json
+                try:
+                    releases = json.loads(result["stdout"]) if result["stdout"].strip() else []
+                    return {
+                        "success": True,
+                        "releases": releases,
+                        "count": len(releases)
+                    }
+                except json.JSONDecodeError:
+                    return {
+                        "success": True,
+                        "releases": [],
+                        "count": 0,
+                        "note": "Brak releases lub błąd parsowania JSON"
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Nie udało się pobrać listy releases: {result['stderr']}"
+                }
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Błąd podczas pobierania releases: {str(e)}"
+            }
 
 # Singleton instance
 helm_service = HelmService()
