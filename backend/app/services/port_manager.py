@@ -158,6 +158,15 @@ class PortManager:
             "grafana_url": f"http://localhost:{ports['grafana']}",
             "grafana_credentials": "admin / admin123"
         }
+    
+    def get_all_ports(self) -> Dict[str, Dict[str, int]]:
+        """
+        Pobierz wszystkie przypisane porty dla wszystkich klastrów
+        
+        Returns:
+            Dict z przypisaniami portów dla wszystkich klastrów
+        """
+        return self._load_port_assignments()
 
 # Singleton instance
 port_manager = PortManager()

@@ -5,6 +5,7 @@ import SignIn from '../views/SignIn.vue'
 import Register from '../views/Register.vue'
 import HomeView from '../views/HomeView.vue'
 import DeployView from '../views/DeployView.vue'
+import MonitoringView from '../views/MonitoringView.vue'
 
 const routes = [
   {
@@ -23,6 +24,11 @@ const routes = [
   {
     path: '/deploy',
     component: DeployView,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/monitoring',
+    component: MonitoringView,
     meta: { requiresAuth: true }
   },
 ]

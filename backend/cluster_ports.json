@@ -1,1 +1,10 @@
-{}
+{
+  "test122": {
+    "prometheus": 30090,
+    "grafana": 30030
+  },
+  "klaster-wiktor": {
+    "prometheus": 30100,
+    "grafana": 30040
+  }
+}

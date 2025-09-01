@@ -26,11 +26,39 @@
 
     <!-- Nagłówek -->
     <header class="bg-white shadow-sm sticky top-0 z-10">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-        <h1 class="text-2xl font-bold text-gray-900">ClusterMaster</h1>
-        <div v-if="authStore.user" class="flex items-center space-x-4">
-          <span class="text-gray-600 hidden md:inline">{{ authStore.user.email }}</span>
-          <button @click="logout" class="btn btn-danger text-sm py-1">Wyloguj się</button>
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <div class="flex justify-between items-center">
+          <h1 class="text-2xl font-bold text-gray-900">ClusterMaster</h1>
+          
+          <!-- Nawigacja -->
+          <nav class="hidden md:flex space-x-6">
+            <router-link 
+              to="/" 
+              class="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+              :class="{ 'bg-gray-100 text-gray-900': $route.path === '/' }"
+            >
+              🏠 Pulpit
+            </router-link>
+            <router-link 
+              to="/deploy" 
+              class="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+              :class="{ 'bg-gray-100 text-gray-900': $route.path === '/deploy' }"
+            >
+              🚀 Deploy
+            </router-link>
+            <router-link 
+              to="/monitoring" 
+              class="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+              :class="{ 'bg-gray-100 text-gray-900': $route.path === '/monitoring' }"
+            >
+              📊 Monitoring
+            </router-link>
+          </nav>
+          
+          <div v-if="authStore.user" class="flex items-center space-x-4">
+            <span class="text-gray-600 hidden lg:inline">{{ authStore.user.email }}</span>
+            <button @click="logout" class="btn btn-danger text-sm py-1">Wyloguj się</button>
+          </div>
         </div>
       </div>
     </header>
@@ -166,16 +194,19 @@
               @click="goToDeployView"
               class="btn bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 flex flex-col items-center py-3"
             >
-              <span class="mb-1">Nowy klaster</span>
+              <span class="mb-1">🚀 Nowy klaster</span>
+            </button>
+            <button 
+              @click="goToMonitoringView"
+              class="btn bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-200 flex flex-col items-center py-3"
+            >
+              <span class="mb-1">📊 Monitoring</span>
             </button>
             <button class="btn bg-green-50 text-green-700 hover:bg-green-100 border border-green-200 flex flex-col items-center py-3">
-              <span class="mb-1">Skaluj</span>
+              <span class="mb-1">📈 Skaluj</span>
             </button>
             <button class="btn bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 flex flex-col items-center py-3">
-              <span class="mb-1">Backup</span>
-            </button>
-            <button class="btn bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 flex flex-col items-center py-3">
-              <span class="mb-1">Raporty</span>
+              <span class="mb-1">💾 Backup</span>
             </button>
           </div>
         </div>
@@ -228,6 +259,10 @@ const logout = async () => {
 
 const goToDeployView = () => {
   router.push('/deploy')
+}
+
+const goToMonitoringView = () => {
+  router.push('/monitoring')
 }
 
 const loadClusters = async () => {

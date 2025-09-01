@@ -14,7 +14,7 @@ app = FastAPI(title="ClusterMaster API", version="1.0.0")
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -143,6 +143,73 @@ def create_kind_config(cluster_name, node_count, cluster_ports=None):
 async def root():
     return {"message": "ClusterMaster API is running"}
 
+def parse_node_metrics(metrics_output: str) -> dict:
+    """Parsuj output z kubectl top nodes"""
+    lines = metrics_output.strip().split('\n')
+    total_cpu_usage = 0
+    total_memory_usage = 0
+    node_count = len(lines)
+    nodes_info = []
+    
+    for line in lines:
+        if not line.strip():
+            continue
+        parts = line.split()
+        if len(parts) >= 3:
+            node_name = parts[0]
+            cpu_usage = parts[1]  # np. "100m" lub "1"
+            memory_usage = parts[2]  # np. "1000Mi" lub "1Gi"
+            
+            nodes_info.append({
+                "name": node_name,
+                "cpu": cpu_usage,
+                "memory": memory_usage
+            })
+    
+    return {
+        "node_count": node_count,
+        "nodes": nodes_info,
+        "summary": f"{node_count} wezlow"
+    }
+
+def get_basic_node_info(cluster_name: str) -> dict:
+    """Pobierz podstawowe informacje o węzłach gdy metryki nie są dostępne"""
+    try:
+        nodes_result = subprocess.run([
+            "kubectl", "get", "nodes", "--context", f"kind-{cluster_name}",
+            "-o", "custom-columns=NAME:.metadata.name,STATUS:.status.conditions[-1].type,ROLES:.metadata.labels.node-role\.kubernetes\.io/control-plane",
+            "--no-headers"
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+        
+        if nodes_result.returncode == 0:
+            lines = nodes_result.stdout.strip().split('\n')
+            nodes_info = []
+            for line in lines:
+                if line.strip():
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        nodes_info.append({
+                            "name": parts[0],
+                            "status": parts[1],
+                            "role": "control-plane" if len(parts) > 2 and parts[2] else "worker"
+                        })
+            
+            return {
+                "node_count": len(nodes_info),
+                "nodes": nodes_info,
+                "summary": f"{len(nodes_info)} wezlow",
+                "note": "Metryki zasobow niedostepne (metrics-server nie zainstalowany)"
+            }
+    except:
+        pass
+    
+    return {
+        "error": "Nie mozna pobrac informacji o wezlach",
+        "node_count": 0
+    }
+
+# ENDPOINTS
+
 @app.get("/api/v1/health")
 async def health():
     return {"status": "healthy", "service": "ClusterMaster API"}
@@ -214,6 +281,99 @@ async def list_clusters():
     
     clusters = result["stdout"].strip().split('\n') if result["stdout"].strip() else []
     return {"clusters": clusters}
+
+@app.get("/api/v1/local-cluster")
+async def list_clusters_detailed():
+    """Lista klastrów Kind z dodatkowymi informacjami"""
+    result = run_kind_command(["get", "clusters"])
+    
+    if result["returncode"] != 0:
+        return {
+            "clusters": [], 
+            "error": result["stderr"] or "Nie można pobrać listy klastrów",
+            "debug": result
+        }
+    
+    cluster_names = result["stdout"].strip().split('\n') if result["stdout"].strip() else []
+    
+    # Zbierz szczegółowe informacje o każdym klastrze
+    detailed_clusters = []
+    for cluster_name in cluster_names:
+        if not cluster_name.strip():
+            continue
+            
+        cluster_info = {
+            "name": cluster_name,
+            "status": "unknown",
+            "context": f"kind-{cluster_name}"
+        }
+        
+        # Sprawdź status klastra
+        try:
+            status_result = subprocess.run([
+                "kubectl", "get", "nodes", "--context", f"kind-{cluster_name}"
+            ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+            
+            if status_result.returncode == 0:
+                cluster_info["status"] = "ready"
+                # Policz węzły
+                nodes_lines = status_result.stdout.strip().split('\n')
+                cluster_info["node_count"] = len(nodes_lines) - 1 if len(nodes_lines) > 1 else 0
+            else:
+                cluster_info["status"] = "error"
+        except:
+            cluster_info["status"] = "error"
+        
+        # Sprawdź czy ma monitoring - sprawdź faktyczne pody, nie tylko namespace
+        try:
+            monitoring_result = subprocess.run([
+                "kubectl", "get", "pods", "--namespace", "monitoring", 
+                "--context", f"kind-{cluster_name}",
+                "-l", "app.kubernetes.io/name=prometheus",
+                "--no-headers"
+            ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+            
+            grafana_result = subprocess.run([
+                "kubectl", "get", "pods", "--namespace", "monitoring", 
+                "--context", f"kind-{cluster_name}",
+                "-l", "app.kubernetes.io/name=grafana", 
+                "--no-headers"
+            ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+            
+            # Monitoring jest zainstalowany tylko jeśli są pody Prometheus I Grafana
+            has_prometheus = monitoring_result.returncode == 0 and monitoring_result.stdout.strip()
+            has_grafana = grafana_result.returncode == 0 and grafana_result.stdout.strip()
+            
+            cluster_info["monitoring"] = {
+                "installed": bool(has_prometheus and has_grafana)
+            }
+        except:
+            cluster_info["monitoring"] = {"installed": False}
+        
+        # Dodaj informacje o portach
+        cluster_ports = port_manager.get_cluster_ports(cluster_name)
+        if cluster_ports:
+            cluster_info["assigned_ports"] = cluster_ports
+        
+        # Dodaj informacje o zasobach systemowych
+        try:
+            # Pobierz metryki węzłów
+            nodes_metrics = subprocess.run([
+                "kubectl", "top", "nodes", "--context", f"kind-{cluster_name}",
+                "--no-headers"
+            ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+            
+            if nodes_metrics.returncode == 0 and nodes_metrics.stdout.strip():
+                cluster_info["resources"] = parse_node_metrics(nodes_metrics.stdout)
+            else:
+                # Fallback - podstawowe info o węzłach
+                cluster_info["resources"] = get_basic_node_info(cluster_name)
+        except:
+            cluster_info["resources"] = {"error": "Nie można pobrać metryk"}
+        
+        detailed_clusters.append(cluster_info)
+    
+    return {"clusters": detailed_clusters}
 
 @app.post("/api/v1/local-cluster/create")
 async def create_cluster(cluster_data: dict):
@@ -735,4 +895,84 @@ async def get_monitoring_status_endpoint(cluster_name: str):
         return {
             "cluster_name": cluster_name,
             "error": f"Błąd sprawdzania statusu: {str(e)}"
+        }
+
+@app.get("/api/v1/monitoring/ports")
+async def get_all_cluster_ports():
+    """Zwróć wszystkie przypisane porty dla klastrów"""
+    try:
+        all_ports = port_manager.get_all_ports()
+        return {
+            "success": True,
+            "ports": all_ports
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Błąd pobierania portów: {str(e)}"
+        }
+
+@app.get("/api/v1/monitoring/ports/{cluster_name}")
+async def get_cluster_ports_endpoint(cluster_name: str):
+    """Zwróć porty dla konkretnego klastra"""
+    try:
+        ports = port_manager.get_cluster_ports(cluster_name)
+        if not ports:
+            return {
+                "success": False,
+                "error": f"Brak przypisanych portów dla klastra {cluster_name}"
+            }
+        
+        return {
+            "success": True,
+            "cluster_name": cluster_name,
+            "ports": ports,
+            "urls": {
+                "prometheus_url": f"http://localhost:{ports['prometheus']}",
+                "grafana_url": f"http://localhost:{ports['grafana']}"
+            }
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Błąd pobierania portów: {str(e)}"
+        }
+
+@app.post("/api/v1/monitoring/install-metrics-server/{cluster_name}")
+async def install_metrics_server(cluster_name: str):
+    """Zainstaluj metrics-server w klastrze do zbierania metryk CPU/RAM"""
+    try:
+        context = f"kind-{cluster_name}"
+        
+        # Zainstaluj metrics-server
+        kubectl_result = subprocess.run([
+            "kubectl", "apply", 
+            "-f", "https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml",
+            "--context", context
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+        
+        if kubectl_result.returncode != 0:
+            return {
+                "success": False,
+                "error": f"Błąd instalacji metrics-server: {kubectl_result.stderr}"
+            }
+        
+        # Patch metrics-server dla Kind (wyłącz TLS verification)
+        patch_result = subprocess.run([
+            "kubectl", "patch", "deployment", "metrics-server",
+            "-n", "kube-system",
+            "--context", context,
+            "-p", '{"spec":{"template":{"spec":{"containers":[{"name":"metrics-server","args":["--cert-dir=/tmp","--secure-port=4443","--kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname","--kubelet-use-node-status-port","--metric-resolution=15s","--kubelet-insecure-tls"]}]}}}}'
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+        
+        return {
+            "success": True,
+            "message": "Metrics-server zainstalowany pomyślnie",
+            "note": "Poczekaj ~30 sekund na uruchomienie, potem odśwież dane"
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Błąd instalacji metrics-server: {str(e)}"
         }

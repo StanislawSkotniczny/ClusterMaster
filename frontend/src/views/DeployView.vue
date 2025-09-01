@@ -1,6 +1,49 @@
 <template>
-  <div class="min-h-screen bg-gray-50 py-8">
-    <div class="max-w-4xl mx-auto px-4">
+  <div class="min-h-screen bg-gray-50">
+    <!-- Nagłówek z nawigacją -->
+    <header class="bg-white shadow-sm sticky top-0 z-10">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <div class="flex justify-between items-center">
+          <h1 class="text-2xl font-bold text-gray-900">ClusterMaster</h1>
+          
+          <!-- Nawigacja -->
+          <nav class="hidden md:flex space-x-6">
+            <router-link 
+              to="/" 
+              class="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+              :class="{ 'bg-gray-100 text-gray-900': $route.path === '/' }"
+            >
+              🏠 Pulpit
+            </router-link>
+            <router-link 
+              to="/deploy" 
+              class="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+              :class="{ 'bg-gray-100 text-gray-900': $route.path === '/deploy' }"
+            >
+              🚀 Deploy
+            </router-link>
+            <router-link 
+              to="/monitoring" 
+              class="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+              :class="{ 'bg-gray-100 text-gray-900': $route.path === '/monitoring' }"
+            >
+              📊 Monitoring
+            </router-link>
+          </nav>
+          
+          <div class="flex items-center space-x-4">
+            <button 
+              @click="$router.push('/')" 
+              class="text-gray-600 hover:text-gray-900 text-sm"
+            >
+              ← Powrót
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+    
+    <div class="max-w-4xl mx-auto px-4 py-8">
       <!-- Loading Overlay -->
       <div v-if="isLoading" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
         <div class="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">

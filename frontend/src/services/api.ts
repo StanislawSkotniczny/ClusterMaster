@@ -13,6 +13,33 @@ export interface ClusterResponse {
     message: string
 }
 
+export interface ClusterInfo {
+    name: string
+    status: string
+    node_count?: number
+    context?: string
+    assigned_ports?: {
+        prometheus: number
+        grafana: number
+    }
+    monitoring?: {
+        installed: boolean
+    }
+    resources?: {
+        node_count: number
+        nodes: Array<{
+            name: string
+            cpu?: string
+            memory?: string
+            status?: string
+            role?: string
+        }>
+        summary: string
+        note?: string
+        error?: string
+    }
+}
+
 export class ApiService {
     private static async request(endpoint: string, options: RequestInit = {}) {
         const url = `${API_BASE_URL}${endpoint}`
@@ -40,6 +67,10 @@ export class ApiService {
     // Klastry lokalne
     static async listClusters(): Promise<{ clusters: string[] }> {
         return this.request('/local-cluster/list')
+    }
+
+    static async listClustersDetailed(): Promise<{ clusters: ClusterInfo[] }> {
+        return this.request('/local-cluster')
     }
 
     static async createCluster(data: ClusterCreateRequest): Promise<ClusterResponse> {
@@ -77,5 +108,32 @@ export class ApiService {
 
     static async getMonitoringStatus(clusterName: string) {
         return this.request(`/monitoring/status/${clusterName}`)
+    }
+
+    static async uninstallMonitoring(clusterName: string) {
+        return this.request(`/monitoring/uninstall/${clusterName}`, {
+            method: 'DELETE',
+        })
+    }
+
+    static async getClusterPorts(clusterName: string) {
+        return this.request(`/monitoring/ports/${clusterName}`)
+    }
+
+    static async getAllClusterPorts() {
+        return this.request('/monitoring/ports')
+    }
+
+    static async listHelmReleases(clusterName: string, namespace?: string) {
+        const endpoint = namespace 
+            ? `/monitoring/releases/${clusterName}?namespace=${namespace}`
+            : `/monitoring/releases/${clusterName}`
+        return this.request(endpoint)
+    }
+
+    static async installMetricsServer(clusterName: string) {
+        return this.request(`/monitoring/install-metrics-server/${clusterName}`, {
+            method: 'POST',
+        })
     }
 }
