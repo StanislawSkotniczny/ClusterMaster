@@ -48,6 +48,35 @@ export interface ClusterInfo {
     }
 }
 
+export interface BackupInfo {
+    backup_name: string
+    cluster_name: string
+    created_at: string
+    size_mb: number
+    resources_count: number
+    backup_type: string
+    file_path: string
+    error?: string
+}
+
+export interface BackupDetails {
+    backup_name: string
+    cluster_name: string
+    created_at: string
+    resources: Array<{
+        type: string
+        namespace: string | null
+        scope: string
+    }>
+    cluster_info: Record<string, unknown>
+    backup_type: string
+    file_info: {
+        size_mb: number
+        file_count: number
+        files: string[]
+    }
+}
+
 export class ApiService {
     private static async request(endpoint: string, options: RequestInit = {}) {
         const url = `${API_BASE_URL}${endpoint}`
@@ -143,5 +172,61 @@ export class ApiService {
         return this.request(`/monitoring/install-metrics-server/${clusterName}`, {
             method: 'POST',
         })
+    }
+
+    // Backup endpoints
+    static async getBackupInfo() {
+        return this.request('/backup/info')
+    }
+
+    static async changeBackupDirectory(directory: string): Promise<{ success: boolean; error?: string; message: string }> {
+        return this.request('/backup/change-directory', {
+            method: 'POST',
+            body: JSON.stringify({ directory }),
+        })
+    }
+
+    static async createBackup(clusterName: string, backupName?: string): Promise<{ success: boolean; backup_name?: string; error?: string; message: string }> {
+        const endpoint = backupName 
+            ? `/backup/create/${clusterName}?backup_name=${encodeURIComponent(backupName)}`
+            : `/backup/create/${clusterName}`
+        return this.request(endpoint, {
+            method: 'POST',
+        })
+    }
+
+    static async listBackups(): Promise<{ success: boolean; backups: BackupInfo[]; total_count: number }> {
+        return this.request('/backup/list')
+    }
+
+    static async getBackupDetails(backupName: string): Promise<{ success: boolean; backup_details?: BackupDetails; error?: string }> {
+        return this.request(`/backup/details/${backupName}`)
+    }
+
+    static async deleteBackup(backupName: string): Promise<{ success: boolean; error?: string; message: string }> {
+        return this.request(`/backup/delete/${backupName}`, {
+            method: 'DELETE',
+        })
+    }
+
+    static async restoreBackup(backupName: string, newClusterName?: string): Promise<{ success: boolean; error?: string; message: string }> {
+        const endpoint = newClusterName 
+            ? `/backup/restore/${backupName}?new_cluster_name=${encodeURIComponent(newClusterName)}`
+            : `/backup/restore/${backupName}`
+        return this.request(endpoint, {
+            method: 'POST',
+        })
+    }
+
+    static async downloadBackup(backupName: string) {
+        const response = await fetch(`${API_BASE_URL}/backup/download/${backupName}`, {
+            method: 'GET',
+        })
+        
+        if (!response.ok) {
+            throw new Error(`Download failed: ${response.status} ${response.statusText}`)
+        }
+        
+        return response.blob()
     }
 }

@@ -29,6 +29,13 @@
             >
               📊 Monitoring
             </router-link>
+            <router-link 
+              to="/backup" 
+              class="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+              :class="{ 'bg-gray-100 text-gray-900': $route.path === '/backup' }"
+            >
+              🗂️ Backup
+            </router-link>
           </nav>
           
           <div class="flex items-center space-x-4">

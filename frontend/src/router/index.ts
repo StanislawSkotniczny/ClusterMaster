@@ -6,6 +6,7 @@ import Register from '../views/Register.vue'
 import HomeView from '../views/HomeView.vue'
 import DeployView from '../views/DeployView.vue'
 import MonitoringView from '../views/MonitoringView.vue'
+import BackupView from '../views/BackupView.vue'
 
 const routes = [
   {
@@ -29,6 +30,11 @@ const routes = [
   {
     path: '/monitoring',
     component: MonitoringView,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/backup',
+    component: BackupView,
     meta: { requiresAuth: true }
   },
 ]

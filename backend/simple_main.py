@@ -8,6 +8,25 @@ import yaml
 import json
 from app.services.helm_service import helm_service
 from app.services.port_manager import port_manager
+from app.services.backup_service import BackupService
+import argparse
+import sys
+
+# Parse command line arguments
+def parse_args():
+    parser = argparse.ArgumentParser(description='ClusterMaster Backend API')
+    parser.add_argument('--backup-dir', type=str, help='Directory to store backup files')
+    parser.add_argument('--port', type=int, default=8000, help='Port to run the server on')
+    return parser.parse_args()
+
+# Initialize services - check if we're being run directly or through run.py
+if __name__ == "__main__":
+    args = parse_args()
+    backup_service = BackupService(backup_dir=args.backup_dir)
+else:
+    # When imported (e.g., by uvicorn), check environment variable
+    backup_dir = os.environ.get('CLUSTER_BACKUP_DIR')
+    backup_service = BackupService(backup_dir=backup_dir)
 
 app = FastAPI(title="ClusterMaster API", version="1.0.0")
 
@@ -1028,4 +1047,76 @@ async def install_metrics_server(cluster_name: str):
         return {
             "success": False,
             "error": f"Błąd instalacji metrics-server: {str(e)}"
+        }
+
+# BACKUP ENDPOINTS
+
+@app.post("/api/v1/backup/create/{cluster_name}")
+async def create_backup(cluster_name: str, backup_name: str = None):
+    """Utwórz backup klastra"""
+    result = backup_service.create_cluster_backup(cluster_name, backup_name)
+    return result
+
+@app.post("/api/v1/backup/change-directory")
+async def change_backup_directory(request: dict):
+    """Zmień katalog backup"""
+    new_directory = request.get("directory")
+    if not new_directory:
+        return {
+            "success": False,
+            "error": "Directory path is required",
+            "message": "Ścieżka do katalogu jest wymagana"
+        }
+    
+    result = backup_service.change_backup_directory(new_directory)
+    return result
+
+@app.get("/api/v1/backup/info")
+async def get_backup_info():
+    """Pobierz informacje o katalogu backup"""
+    return backup_service.get_backup_directory_info()
+
+@app.get("/api/v1/backup/list")
+async def list_backups():
+    """Lista wszystkich backupów"""
+    backups = backup_service.list_backups()
+    return {
+        "success": True,
+        "backups": backups,
+        "total_count": len(backups)
+    }
+
+@app.get("/api/v1/backup/details/{backup_name}")
+async def get_backup_details(backup_name: str):
+    """Pobierz szczegóły backupu"""
+    return backup_service.get_backup_details(backup_name)
+
+@app.delete("/api/v1/backup/delete/{backup_name}")
+async def delete_backup(backup_name: str):
+    """Usuń backup"""
+    return backup_service.delete_backup(backup_name)
+
+@app.post("/api/v1/backup/restore/{backup_name}")
+async def restore_backup(backup_name: str, new_cluster_name: str = None):
+    """Przywróć klaster z backupu"""
+    result = backup_service.restore_cluster_backup(backup_name, new_cluster_name)
+    return result
+
+@app.get("/api/v1/backup/download/{backup_name}")
+async def download_backup(backup_name: str):
+    """Pobierz plik backupu"""
+    from fastapi.responses import FileResponse
+    import os
+    
+    backup_file = f"backups/{backup_name}.zip"
+    if os.path.exists(backup_file):
+        return FileResponse(
+            path=backup_file,
+            filename=f"{backup_name}.zip",
+            media_type="application/zip"
+        )
+    else:
+        return {
+            "success": False,
+            "error": "Backup file not found"
         }
