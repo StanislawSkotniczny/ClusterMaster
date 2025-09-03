@@ -242,8 +242,9 @@
                 <h3 class="text-sm font-medium text-gray-900 mb-2">Zasoby systemu</h3>
                 <div v-if="cluster.resources" class="space-y-2">
                   
-                  <!-- Jeśli są metryki CPU/RAM -->
+                  <!-- Jeśli są metryki CPU/RAM w czasie rzeczywistym -->
                   <div v-if="cluster.resources.nodes && cluster.resources.nodes.some(n => n.cpu)" class="space-y-1">
+                    <div class="text-xs text-green-600 mb-1">📊 Metryki na żywo</div>
                     <div v-for="node in cluster.resources.nodes" :key="node.name" class="text-xs">
                       <div class="font-medium text-gray-700">{{ node.name }}:</div>
                       <div class="flex justify-between ml-2">
@@ -253,6 +254,54 @@
                       <div class="flex justify-between ml-2">
                         <span class="text-gray-500">RAM:</span>
                         <span class="font-mono">{{ node.memory || 'N/A' }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <!-- Jeśli są metryki Docker stats -->
+                  <div v-else-if="cluster.resources.type === 'docker_stats' && cluster.resources.nodes" class="space-y-1">
+                    <div class="text-xs text-green-600 mb-1">🐳 Metryki Docker (na żywo)</div>
+                    <div v-for="node in cluster.resources.nodes" :key="node.name" class="text-xs border rounded p-2">
+                      <div class="font-medium text-gray-700 mb-1">{{ node.name }} ({{ node.role }})</div>
+                      <div class="space-y-1 ml-2">
+                        <div class="flex justify-between">
+                          <span class="text-gray-500">CPU:</span>
+                          <span class="font-mono text-blue-600">{{ node.cpu_usage || 'N/A' }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                          <span class="text-gray-500">RAM:</span>
+                          <span class="font-mono text-blue-600">{{ node.memory_usage || 'N/A' }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                          <span class="text-gray-500">RAM %:</span>
+                          <span class="font-mono text-green-600">{{ node.memory_percent || 'N/A' }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <!-- Jeśli są rozszerzone informacje (CPU capacity/allocatable) -->
+                  <div v-else-if="cluster.resources.type === 'enhanced' && cluster.resources.nodes" class="space-y-1">
+                    <div class="text-xs text-blue-600 mb-1">🔧 Informacje szczegółowe</div>
+                    <div v-for="node in cluster.resources.nodes" :key="node.name" class="text-xs border rounded p-2">
+                      <div class="font-medium text-gray-700 mb-1">{{ node.name }} ({{ node.role }})</div>
+                      <div v-if="node.cpu_capacity" class="space-y-1 ml-2">
+                        <div class="flex justify-between">
+                          <span class="text-gray-500">CPU całkowite:</span>
+                          <span class="font-mono">{{ node.cpu_capacity }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                          <span class="text-gray-500">CPU dostępne:</span>
+                          <span class="font-mono">{{ node.cpu_allocatable }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                          <span class="text-gray-500">RAM całkowita:</span>
+                          <span class="font-mono">{{ node.memory_capacity }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                          <span class="text-gray-500">RAM dostępna:</span>
+                          <span class="font-mono">{{ node.memory_allocatable }}</span>
+                        </div>
                       </div>
                     </div>
                   </div>

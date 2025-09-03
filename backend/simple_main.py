@@ -177,7 +177,7 @@ def get_basic_node_info(cluster_name: str) -> dict:
     try:
         nodes_result = subprocess.run([
             "kubectl", "get", "nodes", "--context", f"kind-{cluster_name}",
-            "-o", "custom-columns=NAME:.metadata.name,STATUS:.status.conditions[-1].type,ROLES:.metadata.labels.node-role\.kubernetes\.io/control-plane",
+            "-o", r"custom-columns=NAME:.metadata.name,STATUS:.status.conditions[-1].type,ROLES:.metadata.labels.node-role\.kubernetes\.io/control-plane",
             "--no-headers"
         ], capture_output=True, text=True, encoding='utf-8', errors='replace')
         
@@ -198,7 +198,7 @@ def get_basic_node_info(cluster_name: str) -> dict:
                 "node_count": len(nodes_info),
                 "nodes": nodes_info,
                 "summary": f"{len(nodes_info)} wezlow",
-                "note": "Metryki zasobow niedostepne (metrics-server nie zainstalowany)"
+                "note": "Podstawowe informacje (uzyj 'kubectl describe nodes' dla wiecej)"
             }
     except:
         pass
@@ -207,6 +207,72 @@ def get_basic_node_info(cluster_name: str) -> dict:
         "error": "Nie mozna pobrac informacji o wezlach",
         "node_count": 0
     }
+
+def get_enhanced_node_info(cluster_name: str) -> dict:
+    """Pobierz rozszerzone informacje o węzłach używając Docker stats"""
+    try:
+        # Najpierw pobierz nazwy węzłów
+        nodes_result = subprocess.run([
+            "kubectl", "get", "nodes", "--context", f"kind-{cluster_name}",
+            "-o", "json"
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+        
+        if nodes_result.returncode != 0:
+            return get_basic_node_info(cluster_name)
+        
+        # Parse JSON response
+        import json
+        nodes_data = json.loads(nodes_result.stdout)
+        node_names = [item['metadata']['name'] for item in nodes_data['items']]
+        nodes_info = []
+        
+        for node_name in node_names:
+            # Pobierz stats Docker dla każdego węzła
+            docker_stats = subprocess.run([
+                "docker", "stats", "--no-stream", "--format", 
+                "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}", 
+                node_name
+            ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+            
+            cpu_usage = "N/A"
+            memory_usage = "N/A"
+            memory_percent = "N/A"
+            
+            if docker_stats.returncode == 0:
+                lines = docker_stats.stdout.strip().split('\n')
+                if len(lines) > 1:  # Skip header
+                    stats_line = lines[1]
+                    # Split by whitespace and filter out empty strings
+                    parts = [p for p in stats_line.split() if p]
+                    if len(parts) >= 4:
+                        cpu_usage = parts[1]  # CPU %
+                        memory_usage = parts[2]  # RAM usage part 1
+                        memory_limit = parts[4]  # RAM usage part 2 (after "/")  
+                        memory_percent = parts[5]  # RAM %
+                        memory_usage = f"{memory_usage} / {memory_limit}"
+            
+            role = "control-plane" if "control-plane" in node_name else "worker"
+            
+            node_info = {
+                "name": node_name,
+                "role": role,
+                "cpu_usage": cpu_usage,
+                "memory_usage": memory_usage,
+                "memory_percent": memory_percent,
+                "status": "Ready"
+            }
+            nodes_info.append(node_info)
+        
+        return {
+            "node_count": len(nodes_info),
+            "nodes": nodes_info,
+            "summary": f"{len(nodes_info)} wezlow",
+            "type": "docker_stats",
+            "note": "Metryki z Docker (zywe dane CPU/RAM)"
+        }
+        
+    except Exception as e:
+        return get_basic_node_info(cluster_name)
 
 # ENDPOINTS
 
@@ -357,19 +423,10 @@ async def list_clusters_detailed():
         
         # Dodaj informacje o zasobach systemowych
         try:
-            # Pobierz metryki węzłów
-            nodes_metrics = subprocess.run([
-                "kubectl", "top", "nodes", "--context", f"kind-{cluster_name}",
-                "--no-headers"
-            ], capture_output=True, text=True, encoding='utf-8', errors='replace')
-            
-            if nodes_metrics.returncode == 0 and nodes_metrics.stdout.strip():
-                cluster_info["resources"] = parse_node_metrics(nodes_metrics.stdout)
-            else:
-                # Fallback - podstawowe info o węzłach
-                cluster_info["resources"] = get_basic_node_info(cluster_name)
-        except:
-            cluster_info["resources"] = {"error": "Nie można pobrać metryk"}
+            # Użyj enhanced info jako domyślne (Docker stats)
+            cluster_info["resources"] = get_enhanced_node_info(cluster_name)
+        except Exception as e:
+            cluster_info["resources"] = get_basic_node_info(cluster_name)
         
         detailed_clusters.append(cluster_info)
     
@@ -378,14 +435,10 @@ async def list_clusters_detailed():
 @app.post("/api/v1/local-cluster/create")
 async def create_cluster(cluster_data: dict):
     """Utwórz nowy klaster Kind"""
-    print(f"DEBUG: Received request: {cluster_data}")  # Debug
-    
     cluster_name = cluster_data.get("cluster_name", "test-cluster")
     node_count = cluster_data.get("node_count", 1)
     k8s_version = cluster_data.get("k8s_version")
-    install_monitoring = cluster_data.get("install_monitoring", False)  # <-- DODAJ TO
-    
-    print(f"DEBUG: Install monitoring = {install_monitoring}")  # Debug
+    install_monitoring = cluster_data.get("install_monitoring", False)
     
     # Sprawdź czy klaster już istnieje
     result = run_kind_command(["get", "clusters"])

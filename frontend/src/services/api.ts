@@ -33,8 +33,16 @@ export interface ClusterInfo {
             memory?: string
             status?: string
             role?: string
+            cpu_capacity?: string
+            memory_capacity?: string
+            cpu_allocatable?: string
+            memory_allocatable?: string
+            cpu_usage?: string
+            memory_usage?: string
+            memory_percent?: string
         }>
         summary: string
+        type?: string
         note?: string
         error?: string
     }
@@ -125,7 +133,7 @@ export class ApiService {
     }
 
     static async listHelmReleases(clusterName: string, namespace?: string) {
-        const endpoint = namespace 
+        const endpoint = namespace
             ? `/monitoring/releases/${clusterName}?namespace=${namespace}`
             : `/monitoring/releases/${clusterName}`
         return this.request(endpoint)
