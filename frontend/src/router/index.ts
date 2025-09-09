@@ -7,6 +7,7 @@ import HomeView from '../views/HomeView.vue'
 import DeployView from '../views/DeployView.vue'
 import MonitoringView from '../views/MonitoringView.vue'
 import BackupView from '../views/BackupView.vue'
+import ClusterDetailsView from '../views/ClusterDetailsView.vue'
 
 const routes = [
   {
@@ -36,6 +37,12 @@ const routes = [
     path: '/backup',
     component: BackupView,
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/cluster/:name',
+    component: ClusterDetailsView,
+    meta: { requiresAuth: true },
+    props: true
   },
 ]
 

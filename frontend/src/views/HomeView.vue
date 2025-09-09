@@ -119,12 +119,12 @@
                 <span>{{ cluster }}</span>
                 <div class="flex items-center space-x-2">
                   <span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">Aktywny</span>
-                  <button 
-                    @click="deleteCluster(cluster)"
-                    class="text-red-600 hover:text-red-800 text-xs"
+                  <router-link 
+                    :to="`/cluster/${cluster}`"
+                    class="text-blue-600 hover:text-blue-800 text-xs font-medium"
                   >
-                    Usuń
-                  </button>
+                    Szczegóły
+                  </router-link>
                 </div>
               </li>
             </ul>
@@ -284,21 +284,6 @@ const loadClusters = async () => {
     clusters.value = []
   } finally {
     loading.value = false
-  }
-}
-
-const deleteCluster = async (clusterName: string) => {
-  if (!confirm(`Czy na pewno chcesz usunąć klaster "${clusterName}"?`)) {
-    return
-  }
-  
-  try {
-    await ApiService.deleteCluster(clusterName)
-    alert(`Klaster "${clusterName}" został usunięty`)
-    await loadClusters() 
-  } catch (error: any) {
-    console.error('Błąd usuwania klastra:', error)
-    alert(`Błąd usuwania: ${error.message}`)
   }
 }
 </script>

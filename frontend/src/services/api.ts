@@ -110,6 +110,11 @@ export class ApiService {
         return this.request('/local-cluster')
     }
 
+    static async getClusters(): Promise<ClusterInfo[]> {
+        const result = await this.listClustersDetailed()
+        return result.clusters
+    }
+
     static async createCluster(data: ClusterCreateRequest): Promise<ClusterResponse> {
         return this.request('/local-cluster/create', {
             method: 'POST',
@@ -187,7 +192,7 @@ export class ApiService {
     }
 
     static async createBackup(clusterName: string, backupName?: string): Promise<{ success: boolean; backup_name?: string; error?: string; message: string }> {
-        const endpoint = backupName 
+        const endpoint = backupName
             ? `/backup/create/${clusterName}?backup_name=${encodeURIComponent(backupName)}`
             : `/backup/create/${clusterName}`
         return this.request(endpoint, {
@@ -210,7 +215,7 @@ export class ApiService {
     }
 
     static async restoreBackup(backupName: string, newClusterName?: string): Promise<{ success: boolean; error?: string; message: string }> {
-        const endpoint = newClusterName 
+        const endpoint = newClusterName
             ? `/backup/restore/${backupName}?new_cluster_name=${encodeURIComponent(newClusterName)}`
             : `/backup/restore/${backupName}`
         return this.request(endpoint, {
@@ -222,11 +227,11 @@ export class ApiService {
         const response = await fetch(`${API_BASE_URL}/backup/download/${backupName}`, {
             method: 'GET',
         })
-        
+
         if (!response.ok) {
             throw new Error(`Download failed: ${response.status} ${response.statusText}`)
         }
-        
+
         return response.blob()
     }
 }
