@@ -191,6 +191,30 @@ export class ApiService {
         })
     }
 
+    // Apps management
+    static async installApp(clusterName: string, appData: {
+        name: string
+        displayName: string
+        namespace: string
+        helmChart: string
+        values: Record<string, unknown>
+    }) {
+        return this.request(`/apps/install/${clusterName}`, {
+            method: 'POST',
+            body: JSON.stringify(appData),
+        })
+    }
+
+    static async getInstalledApps(clusterName: string) {
+        return this.request(`/apps/installed/${clusterName}`)
+    }
+
+    static async uninstallApp(clusterName: string, appName: string) {
+        return this.request(`/apps/uninstall/${clusterName}/${appName}`, {
+            method: 'DELETE',
+        })
+    }
+
     static async createBackup(clusterName: string, backupName?: string): Promise<{ success: boolean; backup_name?: string; error?: string; message: string }> {
         const endpoint = backupName
             ? `/backup/create/${clusterName}?backup_name=${encodeURIComponent(backupName)}`

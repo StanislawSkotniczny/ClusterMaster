@@ -151,22 +151,71 @@
 
           <!-- Applications -->
           <div class="bg-white shadow rounded-lg p-6">
-            <h2 class="text-lg font-medium text-gray-900 mb-4">Zainstalowane aplikacje</h2>
-            <div v-if="installedApps.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div v-for="app in installedApps" :key="app.name" class="flex items-center justify-between p-3 border rounded-lg">
-                <div class="flex items-center">
+            <div class="flex justify-between items-center mb-4">
+              <h2 class="text-lg font-medium text-gray-900">Zainstalowane aplikacje</h2>
+              <router-link 
+                to="/apps"
+                class="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-blue-600 bg-blue-50 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                </svg>
+                Dodaj aplikację
+              </router-link>
+            </div>
+            <div v-if="installedApps.length > 0" class="space-y-3">
+              <div v-for="app in installedApps" :key="app.name" class="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+                <div class="flex items-center flex-1">
                   <div class="text-2xl mr-3">{{ app.icon }}</div>
-                  <div>
+                  <div class="flex-1">
                     <p class="font-medium text-gray-900">{{ app.name }}</p>
-                    <p class="text-sm text-gray-500">{{ app.namespace }}</p>
+                    <div class="flex items-center text-sm text-gray-500 space-x-2">
+                      <span>{{ app.namespace }}</span>
+                      <span v-if="app.chart" class="text-xs bg-gray-100 px-2 py-0.5 rounded">{{ app.chart }}</span>
+                      <span v-if="app.app_version" class="text-xs text-blue-600">v{{ app.app_version }}</span>
+                    </div>
                   </div>
                 </div>
-                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                  Zainstalowana
-                </span>
+                <div class="flex items-center space-x-2">
+                  <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
+                        :class="app.status === 'deployed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'">
+                    {{ app.status }}
+                  </span>
+                  <button
+                    @click="uninstallApp(app.name)"
+                    :disabled="uninstallingApps.includes(app.name)"
+                    class="inline-flex items-center px-3 py-1 border border-red-300 rounded-md text-sm font-medium text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <svg v-if="uninstallingApps.includes(app.name)" class="animate-spin -ml-1 mr-1 h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <svg v-else class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                    </svg>
+                    {{ uninstallingApps.includes(app.name) ? 'Odinstalowywanie...' : 'Odinstaluj' }}
+                  </button>
+                </div>
               </div>
             </div>
-            <div v-else class="text-gray-500 text-sm">Brak dodatkowych aplikacji</div>
+            <div v-else class="text-center py-8">
+              <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-4.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 009.586 13H7"></path>
+              </svg>
+              <h3 class="mt-2 text-sm font-medium text-gray-900">Brak aplikacji</h3>
+              <p class="mt-1 text-sm text-gray-500">Rozpocznij od zainstalowania swojej pierwszej aplikacji</p>
+              <div class="mt-6">
+                <router-link 
+                  to="/apps"
+                  class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                >
+                  <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                  </svg>
+                  Przeglądaj aplikacje
+                </router-link>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -283,17 +332,15 @@ const refreshing = ref(false)
 const error = ref('')
 const clusterDetails = ref<ClusterInfo | null>(null)
 
-// Mock data for installed apps - będziemy to później pobierać z API
-const installedApps = ref([
-  { name: 'Prometheus', namespace: 'monitoring', icon: '📊' },
-  { name: 'Grafana', namespace: 'monitoring', icon: '📈' }
-])
+// Real data for installed apps
+const installedApps = ref<Array<{ name: string; namespace: string; icon: string; status?: string; chart?: string; app_version?: string; revision?: string }>>([])
+const uninstallingApps = ref<string[]>([])
 
-// Mock stats - będziemy to później pobierać z API
-const namespaceCount = ref(5)
-const podCount = ref(12)
-const serviceCount = ref(8)
-const deploymentCount = ref(6)
+// Real stats
+const namespaceCount = ref(0)
+const podCount = ref(0)
+const serviceCount = ref(0)
+const deploymentCount = ref(0)
 
 // Computed
 const statusClasses = computed(() => {
@@ -325,6 +372,10 @@ const loadClusterDetails = async () => {
     }
     
     clusterDetails.value = cluster
+    
+    // Load additional data
+    await loadInstalledApps()
+    await loadClusterStats()
   } catch (err) {
     error.value = (err as Error).message || 'Błąd podczas ładowania szczegółów klastra'
   } finally {
@@ -332,9 +383,92 @@ const loadClusterDetails = async () => {
   }
 }
 
+const loadInstalledApps = async () => {
+  try {
+    const result = await ApiService.getInstalledApps(clusterName)
+    if (result.success) {
+      // Map Helm releases to our app format
+      installedApps.value = result.apps.map((app: Record<string, unknown>) => ({
+        name: app.name as string || 'Unknown',
+        namespace: app.namespace as string || 'default',
+        icon: getAppIcon(app.name as string, app.chart as string),
+        status: app.status as string || 'unknown',
+        chart: app.chart as string || '',
+        app_version: app.app_version as string || '',
+        revision: app.revision as string || '1'
+      }))
+    }
+  } catch (err) {
+    console.error('Error loading installed apps:', err)
+  }
+}
+
+const loadClusterStats = async () => {
+  try {
+    // This would be a new API endpoint to get cluster statistics
+    // For now, we'll keep the mock values but you can implement this
+    namespaceCount.value = 5
+    podCount.value = 12  
+    serviceCount.value = 8
+    deploymentCount.value = 6
+  } catch (err) {
+    console.error('Error loading cluster stats:', err)
+  }
+}
+
+const getAppIcon = (appName: string, chart: string): string => {
+  const iconMap: Record<string, string> = {
+    'prometheus': '📊',
+    'grafana': '📈', 
+    'postgresql': '🐘',
+    'mysql': '🐬',
+    'mongodb': '🍃',
+    'redis': '🔴',
+    'rabbitmq': '🐰',
+    'kafka': '📡',
+    'minio': '🪣',
+    'jenkins': '🔧',
+    'gitea': '🦆'
+  }
+  
+  const name = appName.toLowerCase()
+  for (const [key, icon] of Object.entries(iconMap)) {
+    if (name.includes(key) || chart?.toLowerCase().includes(key)) {
+      return icon
+    }
+  }
+  return '📦' // default icon
+}
+
+const uninstallApp = async (appName: string) => {
+  if (!confirm(`Czy na pewno chcesz odinstalować aplikację "${appName}"?`)) {
+    return
+  }
+  
+  uninstallingApps.value.push(appName)
+  
+  try {
+    await ApiService.uninstallApp(clusterName, appName)
+    
+    // Remove from installed apps list
+    installedApps.value = installedApps.value.filter(app => app.name !== appName)
+    
+    // Show success message (you might want to add a notification system)
+    alert(`Aplikacja "${appName}" została odinstalowana`)
+    
+  } catch (err) {
+    console.error('Error uninstalling app:', err)
+    alert(`Błąd podczas odinstalowywania aplikacji: ${(err as Error).message}`)
+  } finally {
+    uninstallingApps.value = uninstallingApps.value.filter(name => name !== appName)
+  }
+}
+
 const refreshData = async () => {
   refreshing.value = true
   await loadClusterDetails()
+  await loadInstalledApps() 
+  await loadClusterStats()
   refreshing.value = false
 }
 

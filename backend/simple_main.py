@@ -9,6 +9,7 @@ import json
 from app.services.helm_service import helm_service
 from app.services.port_manager import port_manager
 from app.services.backup_service import BackupService
+from app.services.app_service import AppService
 import argparse
 import sys
 
@@ -27,6 +28,9 @@ else:
     # When imported (e.g., by uvicorn), check environment variable
     backup_dir = os.environ.get('CLUSTER_BACKUP_DIR')
     backup_service = BackupService(backup_dir=backup_dir)
+
+# Initialize services
+app_service = AppService()
 
 app = FastAPI(title="ClusterMaster API", version="1.0.0")
 
@@ -1120,3 +1124,78 @@ async def download_backup(backup_name: str):
             "success": False,
             "error": "Backup file not found"
         }
+
+# ==================== APPS ENDPOINTS ====================
+
+from pydantic import BaseModel
+from typing import Dict, Any
+
+class AppInstallRequest(BaseModel):
+    name: str
+    displayName: str
+    namespace: str
+    helmChart: str
+    values: Dict[str, Any] = {}
+
+@app.post("/api/v1/apps/install/{cluster_name}")
+async def install_app(cluster_name: str, app_data: AppInstallRequest):
+    """Install application on cluster"""
+    try:
+        result = app_service.install_app(cluster_name, app_data.dict())
+        return result
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Installation error: {str(e)}"
+        }
+
+@app.get("/api/v1/apps/installed/{cluster_name}")
+async def get_installed_apps(cluster_name: str):
+    """Get installed applications on cluster"""
+    try:
+        result = app_service.get_installed_apps(cluster_name)
+        return result
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error getting apps: {str(e)}"
+        }
+
+@app.delete("/api/v1/apps/uninstall/{cluster_name}/{app_name}")
+async def uninstall_app(cluster_name: str, app_name: str):
+    """Uninstall application from cluster"""
+    try:
+        result = app_service.uninstall_app(cluster_name, app_name)
+        return result
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Uninstall error: {str(e)}"
+        }
+
+@app.get("/api/v1/apps/available")
+async def get_available_apps():
+    """Get list of available applications"""
+    return {
+        "success": True,
+        "categories": [
+            {
+                "name": "databases",
+                "displayName": "Bazy danych",
+                "apps": [
+                    {"name": "postgresql", "displayName": "PostgreSQL", "icon": "🐘"},
+                    {"name": "mysql", "displayName": "MySQL", "icon": "🐬"},
+                    {"name": "mongodb", "displayName": "MongoDB", "icon": "🍃"},
+                    {"name": "redis", "displayName": "Redis", "icon": "🔴"}
+                ]
+            },
+            {
+                "name": "messaging", 
+                "displayName": "Message Brokers",
+                "apps": [
+                    {"name": "rabbitmq", "displayName": "RabbitMQ", "icon": "🐰"},
+                    {"name": "kafka", "displayName": "Apache Kafka", "icon": "📡"}
+                ]
+            }
+        ]
+    }
