@@ -216,6 +216,22 @@ export class ApiService {
         })
     }
 
+    static async searchHelmCharts(query: string, maxResults: number = 20): Promise<{
+        success: boolean
+        charts: Array<{
+            name: string
+            full_name: string
+            version: string
+            app_version: string
+            description: string
+            repository: string
+        }>
+        count: number
+        error?: string
+    }> {
+        return this.request(`/apps/search?query=${encodeURIComponent(query)}&max_results=${maxResults}`)
+    }
+
     static async createBackup(clusterName: string, backupName?: string): Promise<{ success: boolean; backup_name?: string; error?: string; message: string }> {
         const endpoint = backupName
             ? `/backup/create/${clusterName}?backup_name=${encodeURIComponent(backupName)}`

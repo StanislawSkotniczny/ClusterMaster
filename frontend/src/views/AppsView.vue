@@ -28,6 +28,69 @@
       </div>
     </div>
 
+    <!-- Search Section -->
+    <div v-if="selectedCluster" class="mb-8 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
+      <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+        <span class="text-2xl mr-2">🔍</span>
+        Wyszukaj aplikacje w Helm Charts
+      </h2>
+      <div class="flex gap-3">
+        <input
+          v-model="searchQuery"
+          @keyup.enter="performSearch"
+          type="text"
+          placeholder="Wpisz nazwę aplikacji (np. nginx, wordpress, jenkins)..."
+          class="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+        />
+        <button
+          @click="performSearch"
+          :disabled="searchQuery.length < 2 || isSearching"
+          class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+        >
+          <svg v-if="isSearching" class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <span>{{ isSearching ? 'Szukam...' : 'Szukaj' }}</span>
+        </button>
+      </div>
+      
+      <!-- Search Results -->
+      <div v-if="searchResults.length > 0" class="mt-6">
+        <h3 class="text-lg font-medium text-gray-900 mb-3">
+          Znaleziono {{ searchResults.length }} aplikacji
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
+          <div
+            v-for="chart in searchResults"
+            :key="chart.full_name"
+            class="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow"
+          >
+            <div class="flex justify-between items-start mb-2">
+              <h4 class="font-semibold text-gray-900">{{ chart.name }}</h4>
+              <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">{{ chart.repository }}</span>
+            </div>
+            <p class="text-sm text-gray-600 mb-2 line-clamp-2">{{ chart.description || 'Brak opisu' }}</p>
+            <div class="text-xs text-gray-500 mb-3">
+              <div>Chart: v{{ chart.version }}</div>
+              <div v-if="chart.app_version">App: v{{ chart.app_version }}</div>
+            </div>
+            <button
+              @click="installCustomApp(chart)"
+              :disabled="installingApps.includes(chart.full_name)"
+              class="w-full px-3 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              {{ installingApps.includes(chart.full_name) ? 'Instaluję...' : '+ Zainstaluj' }}
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <div v-else-if="searchPerformed && !isSearching" class="mt-4 text-center text-gray-500">
+        Nie znaleziono aplikacji dla zapytania "{{ searchQuery }}"
+      </div>
+    </div>
+
     <div v-if="!selectedCluster" class="bg-blue-50 border border-blue-200 rounded-md p-4 mb-6">
       <div class="flex">
         <div class="flex-shrink-0">
@@ -37,10 +100,18 @@
         </div>
         <div class="ml-3">
           <p class="text-sm text-blue-800">
-            Wybierz klaster aby przeglądać dostępne aplikacje do instalacji.
+            Wybierz klaster aby przeglądać i instalować aplikacje.
           </p>
         </div>
       </div>
+    </div>
+
+    <!-- Recommended Apps -->
+    <div v-if="selectedCluster" class="mb-6">
+      <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+        <span class="text-2xl mr-2">⭐</span>
+        Polecane aplikacje
+      </h2>
     </div>
 
     <!-- Apps Grid -->
@@ -168,6 +239,78 @@ const installingApps = ref<string[]>([])
 const statusMessage = ref('')
 const statusType = ref<'success' | 'error'>('success')
 const isLoadingClusters = ref(false)
+
+// Search functionality
+const searchQuery = ref('')
+const searchResults = ref<Array<{
+  name: string
+  full_name: string
+  version: string
+  app_version: string
+  description: string
+  repository: string
+}>>([])
+const isSearching = ref(false)
+const searchPerformed = ref(false)
+
+const performSearch = async () => {
+  if (searchQuery.value.length < 2) {
+    showStatus('Wpisz co najmniej 2 znaki do wyszukania', 'error')
+    return
+  }
+
+  isSearching.value = true
+  searchPerformed.value = true
+  
+  try {
+    const result = await ApiService.searchHelmCharts(searchQuery.value)
+    
+    if (result.success) {
+      searchResults.value = result.charts
+      if (result.charts.length === 0) {
+        showStatus(`Nie znaleziono aplikacji dla "${searchQuery.value}"`, 'error')
+      } else {
+        showStatus(`Znaleziono ${result.charts.length} aplikacji`, 'success')
+      }
+    } else {
+      showStatus(result.error || 'Błąd wyszukiwania', 'error')
+      searchResults.value = []
+    }
+  } catch (error) {
+    console.error('Search error:', error)
+    showStatus('Błąd podczas wyszukiwania aplikacji', 'error')
+    searchResults.value = []
+  } finally {
+    isSearching.value = false
+  }
+}
+
+const installCustomApp = async (chart: typeof searchResults.value[0]) => {
+  if (!selectedCluster.value) return
+  
+  installingApps.value.push(chart.full_name)
+  
+  try {
+    await ApiService.installApp(selectedCluster.value, {
+      name: chart.name,
+      displayName: chart.name,
+      namespace: 'default',
+      helmChart: chart.full_name,
+      values: {}
+    })
+    
+    showStatus(`${chart.name} został zainstalowany na klastrze ${selectedCluster.value}!`, 'success')
+    
+    // Remove from search results after successful install
+    searchResults.value = searchResults.value.filter(c => c.full_name !== chart.full_name)
+    
+  } catch (error) {
+    console.error('Error installing app:', error)
+    showStatus(`Błąd instalacji ${chart.name}: ${(error as Error).message}`, 'error')
+  } finally {
+    installingApps.value = installingApps.value.filter(name => name !== chart.full_name)
+  }
+}
 
 // App definitions
 const databaseApps = ref<App[]>([

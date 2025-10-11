@@ -81,3 +81,22 @@ async def get_available_apps():
             }
         ]
     }
+
+@router.get("/search")
+async def search_helm_charts(query: str, max_results: int = 20):
+    """Search for Helm charts in repositories"""
+    try:
+        if not query or len(query) < 2:
+            raise HTTPException(status_code=400, detail="Query must be at least 2 characters")
+        
+        result = app_service.search_helm_charts(query, max_results)
+        
+        if result.get('success'):
+            return result
+        else:
+            raise HTTPException(status_code=400, detail=result.get('error', 'Search failed'))
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")

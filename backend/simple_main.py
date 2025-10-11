@@ -1246,6 +1246,27 @@ async def uninstall_app(cluster_name: str, app_name: str):
             "error": f"Uninstall error: {str(e)}"
         }
 
+@app.get("/api/v1/apps/search")
+async def search_helm_charts(query: str, max_results: int = 20):
+    """Search for Helm charts in repositories"""
+    try:
+        if not query or len(query) < 2:
+            return {
+                "success": False,
+                "error": "Query must be at least 2 characters",
+                "charts": []
+            }
+        
+        result = app_service.search_helm_charts(query, max_results)
+        return result
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Search error: {str(e)}",
+            "charts": []
+        }
+
 @app.get("/api/v1/apps/available")
 async def get_available_apps():
     """Get list of available applications"""

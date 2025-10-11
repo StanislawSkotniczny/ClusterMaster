@@ -10,6 +10,78 @@ class AppService:
     def __init__(self):
         self.temp_dir = Path(tempfile.gettempdir()) / "cluster_apps"
         self.temp_dir.mkdir(exist_ok=True)
+        self._ensure_helm_repos()
+    
+    def _ensure_helm_repos(self):
+        """Ensure common Helm repositories are added"""
+        try:
+            # Add common repos
+            repos = {
+                "bitnami": "https://charts.bitnami.com/bitnami",
+                "stable": "https://charts.helm.sh/stable",
+                "prometheus-community": "https://prometheus-community.github.io/helm-charts",
+                "grafana": "https://grafana.github.io/helm-charts",
+                "ingress-nginx": "https://kubernetes.github.io/ingress-nginx",
+                "jetstack": "https://charts.jetstack.io",
+            }
+            
+            for repo_name, repo_url in repos.items():
+                subprocess.run([
+                    "helm", "repo", "add", repo_name, repo_url
+                ], capture_output=True, timeout=30)
+            
+            # Update repos
+            subprocess.run([
+                "helm", "repo", "update"
+            ], capture_output=True, timeout=60)
+            
+        except Exception as e:
+            print(f"Warning: Could not initialize Helm repositories: {e}")
+    
+    def search_helm_charts(self, query: str, max_results: int = 20) -> Dict[str, Any]:
+        """Search for Helm charts across all repositories"""
+        try:
+            # Update repos first
+            subprocess.run(["helm", "repo", "update"], capture_output=True, timeout=60)
+            
+            # Search for charts
+            cmd = ["helm", "search", "repo", query, "--output", "json"]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                charts = json.loads(result.stdout) if result.stdout.strip() else []
+                
+                # Limit results and format
+                formatted_charts = []
+                for chart in charts[:max_results]:
+                    formatted_charts.append({
+                        "name": chart.get("name", "").split("/")[-1],  # Get chart name without repo
+                        "full_name": chart.get("name", ""),  # Full name with repo
+                        "version": chart.get("version", ""),
+                        "app_version": chart.get("app_version", ""),
+                        "description": chart.get("description", ""),
+                        "repository": chart.get("name", "").split("/")[0] if "/" in chart.get("name", "") else "unknown"
+                    })
+                
+                return {
+                    "success": True,
+                    "charts": formatted_charts,
+                    "count": len(formatted_charts)
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Search failed: {result.stderr}",
+                    "charts": []
+                }
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Search error: {str(e)}",
+                "charts": []
+            }
     
     def install_app(self, cluster_name: str, app_data: Dict[str, Any]) -> Dict[str, Any]:
         """Install application on cluster using Helm"""
