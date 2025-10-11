@@ -363,7 +363,7 @@ const loadClusterDetails = async () => {
     loading.value = true
     error.value = ''
     
-    const clusters = await ApiService.getClusters()
+    const clusters = await ApiService.getClusters(false)
     const cluster = clusters.find((c: ClusterInfo) => c.name === clusterName)
     
     if (!cluster) {

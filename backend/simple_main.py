@@ -12,6 +12,10 @@ from app.services.backup_service import BackupService
 from app.services.app_service import AppService
 import argparse
 import sys
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
+from typing import Optional
 
 # Parse command line arguments
 def parse_args():
@@ -31,6 +35,23 @@ else:
 
 # Initialize services
 app_service = AppService()
+
+_cluster_cache = {}
+_cache_ttl_fast = timedelta(seconds=10)  
+_cache_ttl_full = timedelta(seconds=5)  
+
+def get_from_cache(key: str, use_fast_ttl: bool = False) -> Optional[dict]:
+    """Pobierz wartość z cache jeśli jest aktualna"""
+    if key in _cluster_cache:
+        data, timestamp = _cluster_cache[key]
+        ttl = _cache_ttl_fast if use_fast_ttl else _cache_ttl_full
+        if datetime.now() - timestamp < ttl:
+            return data
+    return None
+
+def set_in_cache(key: str, data: dict):
+    """Zapisz wartość w cache"""
+    _cluster_cache[key] = (data, datetime.now())
 
 app = FastAPI(title="ClusterMaster API", version="1.0.0")
 
@@ -202,7 +223,7 @@ def get_basic_node_info(cluster_name: str) -> dict:
             "kubectl", "get", "nodes", "--context", f"kind-{cluster_name}",
             "-o", r"custom-columns=NAME:.metadata.name,STATUS:.status.conditions[-1].type,ROLES:.metadata.labels.node-role\.kubernetes\.io/control-plane",
             "--no-headers"
-        ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
         
         if nodes_result.returncode == 0:
             lines = nodes_result.stdout.strip().split('\n')
@@ -238,7 +259,7 @@ def get_enhanced_node_info(cluster_name: str) -> dict:
         nodes_result = subprocess.run([
             "kubectl", "get", "nodes", "--context", f"kind-{cluster_name}",
             "-o", "json"
-        ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
         
         if nodes_result.returncode != 0:
             return get_basic_node_info(cluster_name)
@@ -247,41 +268,39 @@ def get_enhanced_node_info(cluster_name: str) -> dict:
         import json
         nodes_data = json.loads(nodes_result.stdout)
         node_names = [item['metadata']['name'] for item in nodes_data['items']]
-        nodes_info = []
         
-        for node_name in node_names:
-            # Pobierz stats Docker dla każdego węzła
+      
+        if node_names:
             docker_stats = subprocess.run([
                 "docker", "stats", "--no-stream", "--format", 
-                "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}", 
-                node_name
-            ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+                "{{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"
+            ] + node_names, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
             
-            cpu_usage = "N/A"
-            memory_usage = "N/A"
-            memory_percent = "N/A"
-            
+            # Parse stats
+            stats_map = {}
             if docker_stats.returncode == 0:
                 lines = docker_stats.stdout.strip().split('\n')
-                if len(lines) > 1:  # Skip header
-                    stats_line = lines[1]
-                    # Split by whitespace and filter out empty strings
-                    parts = [p for p in stats_line.split() if p]
+                for line in lines:
+                    parts = line.split('\t')
                     if len(parts) >= 4:
-                        cpu_usage = parts[1]  # CPU %
-                        memory_usage = parts[2]  # RAM usage part 1
-                        memory_limit = parts[4]  # RAM usage part 2 (after "/")  
-                        memory_percent = parts[5]  # RAM %
-                        memory_usage = f"{memory_usage} / {memory_limit}"
-            
+                        container_name = parts[0]
+                        stats_map[container_name] = {
+                            'cpu': parts[1],
+                            'memory': parts[2],
+                            'memory_percent': parts[3]
+                        }
+        
+        nodes_info = []
+        for node_name in node_names:
             role = "control-plane" if "control-plane" in node_name else "worker"
             
+            stats = stats_map.get(node_name, {})
             node_info = {
                 "name": node_name,
                 "role": role,
-                "cpu_usage": cpu_usage,
-                "memory_usage": memory_usage,
-                "memory_percent": memory_percent,
+                "cpu_usage": stats.get('cpu', 'N/A'),
+                "memory_usage": stats.get('memory', 'N/A'),
+                "memory_percent": stats.get('memory_percent', 'N/A'),
                 "status": "Ready"
             }
             nodes_info.append(node_info)
@@ -296,6 +315,90 @@ def get_enhanced_node_info(cluster_name: str) -> dict:
         
     except Exception as e:
         return get_basic_node_info(cluster_name)
+
+async def get_cluster_details_async(cluster_name: str, include_resources: bool = True) -> dict:
+    """Asynchronicznie pobierz szczegóły klastra"""
+    loop = asyncio.get_event_loop()
+    
+    cluster_info = {
+        "name": cluster_name,
+        "status": "unknown",
+        "context": f"kind-{cluster_name}"
+    }
+    
+    # Użyj ThreadPoolExecutor do wykonania operacji blokujących równolegle
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        # Sprawdź status klastra
+        async def check_status():
+            try:
+                result = await loop.run_in_executor(
+                    executor,
+                    lambda: subprocess.run([
+                        "kubectl", "get", "nodes", "--context", f"kind-{cluster_name}"
+                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3)
+                )
+                
+                if result.returncode == 0:
+                    cluster_info["status"] = "ready"
+                    # Policz węzły
+                    nodes_lines = result.stdout.strip().split('\n')
+                    cluster_info["node_count"] = len(nodes_lines) - 1 if len(nodes_lines) > 1 else 0
+                else:
+                    cluster_info["status"] = "error"
+            except:
+                cluster_info["status"] = "error"
+        
+        # Sprawdź monitoring
+        async def check_monitoring():
+            try:
+                # Sprawdź oba pody w jednym wywołaniu
+                result = await loop.run_in_executor(
+                    executor,
+                    lambda: subprocess.run([
+                        "kubectl", "get", "pods", "--namespace", "monitoring",
+                        "--context", f"kind-{cluster_name}",
+                        "-l", "app.kubernetes.io/name in (prometheus,grafana)",
+                        "--no-headers"
+                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3)
+                )
+                
+                # Sprawdź czy są oba pody (Prometheus i Grafana)
+                if result.returncode == 0:
+                    pods = result.stdout.strip().split('\n')
+                    has_prometheus = any('prometheus' in pod.lower() for pod in pods if pod.strip())
+                    has_grafana = any('grafana' in pod.lower() for pod in pods if pod.strip())
+                    cluster_info["monitoring"] = {"installed": bool(has_prometheus and has_grafana)}
+                else:
+                    cluster_info["monitoring"] = {"installed": False}
+            except:
+                cluster_info["monitoring"] = {"installed": False}
+        
+        # Pobierz porty
+        async def get_ports():
+            cluster_ports = port_manager.get_cluster_ports(cluster_name)
+            if cluster_ports:
+                cluster_info["assigned_ports"] = cluster_ports
+        
+        # Pobierz zasoby (opcjonalnie - najwolniejsze)
+        async def get_resources():
+            if include_resources:
+                try:
+                    resources = await loop.run_in_executor(
+                        executor,
+                        lambda: get_enhanced_node_info(cluster_name)
+                    )
+                    cluster_info["resources"] = resources
+                except:
+                    cluster_info["resources"] = get_basic_node_info(cluster_name)
+        
+        # Uruchom wszystkie operacje równolegle
+        tasks = [check_status(), check_monitoring(), get_ports()]
+        if include_resources:
+            tasks.append(get_resources())
+        
+        await asyncio.gather(*tasks, return_exceptions=True)
+    
+    return cluster_info
 
 # ENDPOINTS
 
@@ -372,8 +475,19 @@ async def list_clusters():
     return {"clusters": clusters}
 
 @app.get("/api/v1/local-cluster")
-async def list_clusters_detailed():
-    """Lista klastrów Kind z dodatkowymi informacjami"""
+async def list_clusters_detailed(include_resources: bool = False):
+    """Lista klastrów Kind z dodatkowymi informacjami - zoptymalizowana wersja z cache
+    
+    Args:
+        include_resources: Czy dołączyć szczegółowe informacje o zasobach (Docker stats) - wolniejsze
+    """
+    
+    # Sprawdź cache (osobny klucz dla wersji z/bez zasobów)
+    cache_key = f"clusters_list_resources_{include_resources}"
+    cached_data = get_from_cache(cache_key, use_fast_ttl=not include_resources)
+    if cached_data:
+        return cached_data
+    
     result = run_kind_command(["get", "clusters"])
     
     if result["returncode"] != 0:
@@ -383,77 +497,30 @@ async def list_clusters_detailed():
             "debug": result
         }
     
-    cluster_names = result["stdout"].strip().split('\n') if result["stdout"].strip() else []
+    cluster_names = [name.strip() for name in result["stdout"].strip().split('\n') if name.strip()]
     
-    # Zbierz szczegółowe informacje o każdym klastrze
-    detailed_clusters = []
-    for cluster_name in cluster_names:
-        if not cluster_name.strip():
-            continue
-            
-        cluster_info = {
-            "name": cluster_name,
-            "status": "unknown",
-            "context": f"kind-{cluster_name}"
+    # Zbierz szczegółowe informacje o wszystkich klastrach równolegle
+    detailed_clusters = await asyncio.gather(
+        *[get_cluster_details_async(cluster_name, include_resources) for cluster_name in cluster_names],
+        return_exceptions=True
+    )
+    
+    # Filtruj błędy
+    valid_clusters = [
+        cluster if not isinstance(cluster, Exception) else {
+            "name": cluster_names[i] if i < len(cluster_names) else "unknown",
+            "status": "error",
+            "error": str(cluster)
         }
-        
-        # Sprawdź status klastra
-        try:
-            status_result = subprocess.run([
-                "kubectl", "get", "nodes", "--context", f"kind-{cluster_name}"
-            ], capture_output=True, text=True, encoding='utf-8', errors='replace')
-            
-            if status_result.returncode == 0:
-                cluster_info["status"] = "ready"
-                # Policz węzły
-                nodes_lines = status_result.stdout.strip().split('\n')
-                cluster_info["node_count"] = len(nodes_lines) - 1 if len(nodes_lines) > 1 else 0
-            else:
-                cluster_info["status"] = "error"
-        except:
-            cluster_info["status"] = "error"
-        
-        # Sprawdź czy ma monitoring - sprawdź faktyczne pody, nie tylko namespace
-        try:
-            monitoring_result = subprocess.run([
-                "kubectl", "get", "pods", "--namespace", "monitoring", 
-                "--context", f"kind-{cluster_name}",
-                "-l", "app.kubernetes.io/name=prometheus",
-                "--no-headers"
-            ], capture_output=True, text=True, encoding='utf-8', errors='replace')
-            
-            grafana_result = subprocess.run([
-                "kubectl", "get", "pods", "--namespace", "monitoring", 
-                "--context", f"kind-{cluster_name}",
-                "-l", "app.kubernetes.io/name=grafana", 
-                "--no-headers"
-            ], capture_output=True, text=True, encoding='utf-8', errors='replace')
-            
-            # Monitoring jest zainstalowany tylko jeśli są pody Prometheus I Grafana
-            has_prometheus = monitoring_result.returncode == 0 and monitoring_result.stdout.strip()
-            has_grafana = grafana_result.returncode == 0 and grafana_result.stdout.strip()
-            
-            cluster_info["monitoring"] = {
-                "installed": bool(has_prometheus and has_grafana)
-            }
-        except:
-            cluster_info["monitoring"] = {"installed": False}
-        
-        # Dodaj informacje o portach
-        cluster_ports = port_manager.get_cluster_ports(cluster_name)
-        if cluster_ports:
-            cluster_info["assigned_ports"] = cluster_ports
-        
-        # Dodaj informacje o zasobach systemowych
-        try:
-            # Użyj enhanced info jako domyślne (Docker stats)
-            cluster_info["resources"] = get_enhanced_node_info(cluster_name)
-        except Exception as e:
-            cluster_info["resources"] = get_basic_node_info(cluster_name)
-        
-        detailed_clusters.append(cluster_info)
+        for i, cluster in enumerate(detailed_clusters)
+    ]
     
-    return {"clusters": detailed_clusters}
+    response = {"clusters": valid_clusters}
+    
+    # Zapisz w cache
+    set_in_cache(cache_key, response)
+    
+    return response
 
 @app.post("/api/v1/local-cluster/create")
 async def create_cluster(cluster_data: dict):
@@ -516,6 +583,9 @@ async def create_cluster(cluster_data: dict):
             "assigned_ports": cluster_ports
         }
         
+        # Wyczyść cache
+        _cluster_cache.clear()
+        
         # DODAJ INSTALACJĘ MONITORINGU JEŚLI ZAZNACZONE
         if install_monitoring:
             print(f"Installing monitoring for cluster {cluster_name}...")
@@ -569,6 +639,9 @@ async def delete_cluster(cluster_name: str):
             "error": f"Nie udało się usunąć klastra: {result['stderr']}",
             "debug": result
         }
+    
+    # Wyczyść cache
+    _cluster_cache.clear()
     
     return {
         "message": f"Klaster {cluster_name} został usunięty",

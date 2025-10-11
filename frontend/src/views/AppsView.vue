@@ -8,15 +8,24 @@
     <!-- Cluster Selection -->
     <div class="mb-6">
       <label class="block text-sm font-medium text-gray-700 mb-2">Wybierz klaster:</label>
-      <select 
-        v-model="selectedCluster" 
-        class="w-full md:w-1/3 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-      >
-        <option value="">Wybierz klaster...</option>
-        <option v-for="cluster in clusters" :key="cluster.name" :value="cluster.name">
-          {{ cluster.name }} ({{ cluster.status }})
-        </option>
-      </select>
+      <div class="relative">
+        <select 
+          v-model="selectedCluster" 
+          class="w-full md:w-1/3 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+          :disabled="isLoadingClusters"
+        >
+          <option value="">{{ isLoadingClusters ? 'Ładowanie klastrów...' : 'Wybierz klaster...' }}</option>
+          <option v-for="cluster in clusters" :key="cluster.name" :value="cluster.name">
+            {{ cluster.name }} ({{ cluster.status }})
+          </option>
+        </select>
+        <div v-if="isLoadingClusters" class="absolute right-3 top-1/2 transform -translate-y-1/2">
+          <svg class="animate-spin h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </div>
+      </div>
     </div>
 
     <div v-if="!selectedCluster" class="bg-blue-50 border border-blue-200 rounded-md p-4 mb-6">
@@ -158,6 +167,7 @@ const clusters = ref<ClusterInfo[]>([])
 const installingApps = ref<string[]>([])
 const statusMessage = ref('')
 const statusType = ref<'success' | 'error'>('success')
+const isLoadingClusters = ref(false)
 
 // App definitions
 const databaseApps = ref<App[]>([
@@ -340,10 +350,14 @@ const devopsApps = ref<App[]>([
 
 // Methods
 const loadClusters = async () => {
+  isLoadingClusters.value = true
   try {
-    clusters.value = await ApiService.getClusters()
+    // Szybkie ładowanie bez szczegółów o zasobach (Docker stats)
+    clusters.value = await ApiService.getClusters(false)
   } catch (error) {
     console.error('Error loading clusters:', error)
+  } finally {
+    isLoadingClusters.value = false
   }
 }
 

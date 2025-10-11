@@ -106,12 +106,13 @@ export class ApiService {
         return this.request('/local-cluster/list')
     }
 
-    static async listClustersDetailed(): Promise<{ clusters: ClusterInfo[] }> {
-        return this.request('/local-cluster')
+    static async listClustersDetailed(includeResources: boolean = false): Promise<{ clusters: ClusterInfo[] }> {
+        const params = includeResources ? '?include_resources=true' : ''
+        return this.request(`/local-cluster${params}`)
     }
 
-    static async getClusters(): Promise<ClusterInfo[]> {
-        const result = await this.listClustersDetailed()
+    static async getClusters(includeResources: boolean = false): Promise<ClusterInfo[]> {
+        const result = await this.listClustersDetailed(includeResources)
         return result.clusters
     }
 
