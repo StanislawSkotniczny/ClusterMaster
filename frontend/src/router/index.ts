@@ -41,7 +41,7 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
-    path: '/cluster/:name',
+    path: '/clusters/:name',
     component: ClusterDetailsView,
     meta: { requiresAuth: true },
     props: true

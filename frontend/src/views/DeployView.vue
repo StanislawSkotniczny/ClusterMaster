@@ -213,6 +213,92 @@
             <div v-else class="pt-4">
               <h3 class="text-lg font-medium text-gray-800 mb-4 border-t border-gray-100 pt-4">Konfiguracja lokalna</h3>
               
+              <!-- K3D vs Kind Selection -->
+              <div class="mb-6">
+                <label class="block text-gray-700 font-medium mb-3">Provider lokalnego klastra</label>
+                <div class="grid grid-cols-2 gap-4">
+                  <button
+                    type="button"
+                    @click="form.localClusterType = 'kind'"
+                    class="py-4 px-4 border rounded-lg text-left transition-all"
+                    :class="form.localClusterType === 'kind' ? 
+                      'bg-blue-50 border-blue-400 shadow-sm' : 
+                      'bg-white border-gray-300 hover:border-gray-400'"
+                  >
+                    <div class="flex items-start">
+                      <div class="flex-shrink-0 mr-3">
+                        <div class="w-8 h-8 rounded-full flex items-center justify-center"
+                          :class="form.localClusterType === 'kind' ? 'bg-blue-500' : 'bg-gray-300'">
+                          <span class="text-white text-lg">🔵</span>
+                        </div>
+                      </div>
+                      <div class="flex-1">
+                        <div class="font-semibold text-gray-900 mb-1">Kind</div>
+                        <div class="text-xs text-gray-600 leading-relaxed">
+                          Stabilny i sprawdzony<br>
+                          ⚠️ Wymaga rekre...
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    @click="form.localClusterType = 'k3d'"
+                    class="py-4 px-4 border rounded-lg text-left transition-all"
+                    :class="form.localClusterType === 'k3d' ? 
+                      'bg-green-50 border-green-400 shadow-sm' : 
+                      'bg-white border-gray-300 hover:border-gray-400'"
+                  >
+                    <div class="flex items-start">
+                      <div class="flex-shrink-0 mr-3">
+                        <div class="w-8 h-8 rounded-full flex items-center justify-center"
+                          :class="form.localClusterType === 'k3d' ? 'bg-green-500' : 'bg-gray-300'">
+                          <span class="text-white text-lg">🚀</span>
+                        </div>
+                      </div>
+                      <div class="flex-1">
+                        <div class="font-semibold text-gray-900 mb-1">
+                          k3d
+                          <span class="ml-1 text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">ZALECANY</span>
+                        </div>
+                        <div class="text-xs text-gray-600 leading-relaxed">
+                          Lekki i szybki (k3s)<br>
+                          ✨ Live scaling bez utraty danych
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+                
+                <!-- Info box based on selection -->
+                <div v-if="form.localClusterType === 'kind'" 
+                  class="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div class="flex items-start">
+                    <span class="text-blue-600 mr-2">ℹ️</span>
+                    <div class="text-xs text-blue-800">
+                      <strong>Kind (Kubernetes in Docker)</strong> - sprawdzone rozwiązanie do testów.
+                      Uwaga: skalowanie wymaga rekreacji klastra (utrata deploymentów).
+                    </div>
+                  </div>
+                </div>
+                
+                <div v-if="form.localClusterType === 'k3d'" 
+                  class="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div class="flex items-start">
+                    <span class="text-green-600 mr-2">✨</span>
+                    <div class="text-xs text-green-800">
+                      <strong>k3d (k3s in Docker)</strong> - lekka dystrybucja Kubernetes.
+                      Zalety: szybsze uruchamianie, mniej zasobów, live scaling bez rekreacji!<br>
+                      <span class="text-xs text-gray-600 mt-1 block">
+                        ⚠️ Wymaga instalacji k3d: <code class="bg-gray-100 px-1">choco install k3d</code> 
+                        lub pobierz z <a href="https://k3d.io" target="_blank" class="text-blue-600 underline">k3d.io</a>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
               <label for="kubeconfigPath" class="block text-gray-700 font-medium mb-2">Ścieżka kubeconfig</label>
               <input
                 id="kubeconfigPath"
@@ -453,6 +539,7 @@ const statusMessage = ref("")
 
 const form = reactive({
   provider: "local",
+  localClusterType: "k3d", // "kind" or "k3d" - default to k3d for better scaling
   clusterName: "",
   nodeCount: 2,
 
@@ -529,18 +616,30 @@ async function handleSubmit() {
       statusMessage.value += " (z monitoringiem)"
     }
     
-    // Create cluster with monitoring flag
+    // Create cluster with monitoring flag and provider
     const clusterData = {
       cluster_name: form.clusterName,
       node_count: form.nodeCount,
       k8s_version: form.k8sVersion || undefined,
-      install_monitoring: form.installMonitoring  // Backend obsłuży instalację
+      install_monitoring: form.installMonitoring,  // Backend obsłuży instalację
+      provider: form.provider === 'local' ? form.localClusterType : 'aws' // Send kind/k3d for local
     }
+    
+    console.log('Creating cluster with data:', clusterData)
     
     const result = await ApiService.createCluster(clusterData)
     
+    console.log('Backend response:', result)
+    
     clearInterval(progressInterval)
     progress.value = 100
+    
+    // Check for errors from backend
+    if (result.status === 'error' || result.error) {
+      const errorMsg = result.error || "Nieznany błąd podczas tworzenia klastra"
+      console.error('Cluster creation failed:', errorMsg)
+      throw new Error(errorMsg)
+    }
     
     if (result.status === 'success' || result.message) {
       statusMessage.value = result.message || "Klaster utworzony pomyślnie!"

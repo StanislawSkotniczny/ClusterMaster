@@ -8,14 +8,17 @@ export interface ClusterCreateRequest {
 }
 
 export interface ClusterResponse {
-    cluster_name: string
+    cluster_name?: string
     status: string
-    message: string
+    message?: string
+    error?: string  // Error message if status is 'error'
+    provider?: string  // 'kind' or 'k3d'
 }
 
 export interface ClusterInfo {
     name: string
     status: string
+    provider?: string  // 'kind' or 'k3d'
     node_count?: number
     context?: string
     assigned_ports?: {
@@ -279,6 +282,7 @@ export class ApiService {
     // Cluster Scaling
     static async getClusterScalingConfig(clusterName: string): Promise<{
         success: boolean
+        provider?: string  // 'kind' or 'k3d'
         config?: {
             controlPlaneNodes: number
             workerNodes: number
@@ -286,6 +290,8 @@ export class ApiService {
             cpuPerNode: number
             ramPerNode: number
         }
+        info?: string      // Additional info (e.g., k3d live scaling support)
+        warning?: string   // Warnings (e.g., Kind requires recreate)
         error?: string
     }> {
         return this.request(`/clusters/${clusterName}/scaling/config`)
@@ -297,9 +303,11 @@ export class ApiService {
         ramPerNode: number
     }): Promise<{
         success: boolean
+        provider?: string  // 'kind' or 'k3d'
         message?: string
         operations?: string[]
-        warning?: string
+        info?: string      // Success info (e.g., k3d live scaling notice)
+        warning?: string   // Warnings (e.g., Kind recreate warning)
         error?: string
     }> {
         return this.request(`/clusters/${clusterName}/scaling/apply`, {

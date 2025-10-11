@@ -9,11 +9,31 @@
         >
           ← Powrót do klastra
         </button>
-        <h1 class="text-3xl font-bold text-gray-800 mb-2">
-          Skalowanie Klastra: {{ clusterName }}
-        </h1>
+        <div class="flex items-center gap-3 mb-2">
+          <h1 class="text-3xl font-bold text-gray-800">
+            Skalowanie Klastra: {{ clusterName }}
+          </h1>
+          <!-- Provider Badge -->
+          <span 
+            v-if="clusterProvider === 'k3d'" 
+            class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-semibold"
+          >
+            🚀 k3d
+          </span>
+          <span 
+            v-else-if="clusterProvider === 'kind'" 
+            class="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-semibold"
+          >
+            🔵 kind
+          </span>
+        </div>
         <p class="text-gray-600">
-          Zarządzaj liczbą nodów i ich zasobami
+          <span v-if="clusterProvider === 'k3d'">
+            Zarządzaj liczbą nodów i ich zasobami (Live Scaling - bez utraty danych!)
+          </span>
+          <span v-else>
+            Zarządzaj liczbą nodów i ich zasobami
+          </span>
         </p>
       </div>
 
@@ -155,18 +175,32 @@
         <div v-if="hasChanges" class="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-6">
           <h3 class="text-lg font-semibold text-gray-800 mb-4">Podgląd Zmian</h3>
           
-          <!-- Warning about cluster recreation -->
-          <div class="bg-red-50 border border-red-300 rounded-lg p-4 mb-4">
+          <!-- Warning about cluster recreation (Kind only) -->
+          <div v-if="clusterProvider === 'kind'" class="bg-red-50 border border-red-300 rounded-lg p-4 mb-4">
             <div class="flex items-start gap-2">
               <span class="text-red-600 text-2xl">⚠️</span>
               <div>
-                <h4 class="font-semibold text-red-800">Uwaga: Klaster będzie recreated!</h4>
+                <h4 class="font-semibold text-red-800">Uwaga: Klaster Kind będzie recreated!</h4>
                 <p class="text-sm text-red-700 mt-1">
                   Skalowanie klastra Kind wymaga jego usunięcia i ponownego stworzenia.
                   <strong>Wszystkie deployments i dane w klastrze zostaną utracone!</strong>
                 </p>
                 <p class="text-sm text-red-600 mt-2 font-medium">
                   Upewnij się że masz backupy przed kontynuowaniem.
+                </p>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Info about k3d live scaling -->
+          <div v-else-if="clusterProvider === 'k3d'" class="bg-green-50 border border-green-300 rounded-lg p-4 mb-4">
+            <div class="flex items-start gap-2">
+              <span class="text-green-600 text-2xl">✨</span>
+              <div>
+                <h4 class="font-semibold text-green-800">k3d: Live Scaling!</h4>
+                <p class="text-sm text-green-700 mt-1">
+                  Klaster k3d wspiera live scaling - nody będą dodane/usunięte bez recreate.
+                  <strong>Twoje deploymenty i dane będą zachowane!</strong>
                 </p>
               </div>
             </div>
@@ -255,6 +289,10 @@ const currentConfig = ref({
   ramPerNode: 4096
 })
 
+// Provider info
+const clusterProvider = ref<string>('kind') // 'kind' or 'k3d'
+const providerInfo = ref<string>('')
+
 // New Configuration
 const newWorkerNodes = ref(2)
 const newCpuPerNode = ref('2')
@@ -310,6 +348,10 @@ async function loadClusterConfig() {
         ramPerNode: response.config.ramPerNode
       }
       
+      // Store provider info
+      clusterProvider.value = response.provider || 'kind'
+      providerInfo.value = response.info || response.warning || ''
+      
       resetChanges()
     }
   } catch (err) {
@@ -326,12 +368,25 @@ async function applyChanges() {
     successMessage.value = null
     error.value = null
     
-    // Potwierdzenie od użytkownika
-    const confirmed = confirm(
-      '⚠️ UWAGA: Klaster będzie usunięty i stworzony ponownie!\n\n' +
-      'Wszystkie deployments, pods i dane w klastrze zostaną utracone.\n\n' +
-      'Czy na pewno chcesz kontynuować?'
-    )
+    // Potwierdzenie od użytkownika - różne dla Kind i k3d
+    let confirmed = false
+    
+    if (clusterProvider.value === 'kind') {
+      confirmed = confirm(
+        '⚠️ UWAGA: Klaster Kind będzie usunięty i stworzony ponownie!\n\n' +
+        'Wszystkie deployments, pods i dane w klastrze zostaną utracone.\n\n' +
+        'Czy na pewno chcesz kontynuować?'
+      )
+    } else if (clusterProvider.value === 'k3d') {
+      confirmed = confirm(
+        '✨ k3d: Live Scaling\n\n' +
+        'Nody zostaną dodane/usunięte bez recreate klastra.\n' +
+        'Twoje deploymenty będą zachowane!\n\n' +
+        'Czy chcesz kontynuować?'
+      )
+    } else {
+      confirmed = confirm('Czy na pewno chcesz zastosować te zmiany?')
+    }
     
     if (!confirmed) {
       applying.value = false
@@ -353,9 +408,12 @@ async function applyChanges() {
       console.log('Scaling operations:', response.operations)
     }
     
-    // Show warning if present
+    // Show warning/info if present
     if (response.warning) {
       console.warn(response.warning)
+    }
+    if (response.info) {
+      console.info(response.info)
     }
     
     // Reload configuration from server
@@ -364,7 +422,10 @@ async function applyChanges() {
     successMessage.value = `✨ ${response.message || 'Klaster został pomyślnie przeskalowany!'}`
     
     if (response.warning) {
-      successMessage.value += `\n${response.warning}`
+      successMessage.value += `\n⚠️ ${response.warning}`
+    }
+    if (response.info) {
+      successMessage.value += `\n✨ ${response.info}`
     }
     
     // Auto-hide success message after 8 seconds

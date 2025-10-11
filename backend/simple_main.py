@@ -10,6 +10,7 @@ from app.services.helm_service import helm_service
 from app.services.port_manager import port_manager
 from app.services.backup_service import BackupService
 from app.services.app_service import AppService
+from app.services.k3d_service import k3d_service
 import argparse
 import sys
 import asyncio
@@ -37,8 +38,8 @@ else:
 app_service = AppService()
 
 _cluster_cache = {}
-_cache_ttl_fast = timedelta(seconds=10)  
-_cache_ttl_full = timedelta(seconds=5)  
+_cache_ttl_fast = timedelta(seconds=3)  # Szybkie cache dla list (3s)
+_cache_ttl_full = timedelta(seconds=2)  # Pełne cache dla szczegółów (2s)  
 
 def get_from_cache(key: str, use_fast_ttl: bool = False) -> Optional[dict]:
     """Pobierz wartość z cache jeśli jest aktualna"""
@@ -252,6 +253,27 @@ def get_basic_node_info(cluster_name: str) -> dict:
         "node_count": 0
     }
 
+def detect_cluster_provider(cluster_name: str) -> str:
+    """Wykryj providera klastra (kind lub k3d)"""
+    # Sprawdź k3d clusters (z obsługą błędów)
+    try:
+        k3d_clusters = k3d_service.list_clusters()
+        if cluster_name in k3d_clusters:
+            return "k3d"
+    except Exception as e:
+        print(f"Nie można sprawdzić klastrów k3d: {e}")
+    
+    # Sprawdź kind clusters
+    try:
+        kind_result = run_kind_command(["get", "clusters"])
+        if kind_result["returncode"] == 0 and cluster_name in kind_result["stdout"]:
+            return "kind"
+    except Exception as e:
+        print(f"Nie można sprawdzić klastrów Kind: {e}")
+    
+    # Default to kind if unknown
+    return "kind"
+
 def get_enhanced_node_info(cluster_name: str) -> dict:
     """Pobierz rozszerzone informacje o węzłach używając Docker stats"""
     try:
@@ -317,13 +339,17 @@ def get_enhanced_node_info(cluster_name: str) -> dict:
         return get_basic_node_info(cluster_name)
 
 async def get_cluster_details_async(cluster_name: str, include_resources: bool = True) -> dict:
-    """Asynchronicznie pobierz szczegóły klastra"""
+    """Asynchronicznie pobierz szczegóły klastra (Kind lub k3d)"""
     loop = asyncio.get_event_loop()
+    
+    # Wykryj provider klastra
+    provider = detect_cluster_provider(cluster_name)
     
     cluster_info = {
         "name": cluster_name,
         "status": "unknown",
-        "context": f"kind-{cluster_name}"
+        "context": f"{provider}-{cluster_name}",
+        "provider": provider
     }
     
     # Użyj ThreadPoolExecutor do wykonania operacji blokujących równolegle
@@ -334,8 +360,8 @@ async def get_cluster_details_async(cluster_name: str, include_resources: bool =
                 result = await loop.run_in_executor(
                     executor,
                     lambda: subprocess.run([
-                        "kubectl", "get", "nodes", "--context", f"kind-{cluster_name}"
-                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3)
+                        "kubectl", "get", "nodes", "--context", f"{provider}-{cluster_name}"
+                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=1)
                 )
                 
                 if result.returncode == 0:
@@ -345,8 +371,9 @@ async def get_cluster_details_async(cluster_name: str, include_resources: bool =
                     cluster_info["node_count"] = len(nodes_lines) - 1 if len(nodes_lines) > 1 else 0
                 else:
                     cluster_info["status"] = "error"
-            except:
+            except Exception as e:
                 cluster_info["status"] = "error"
+                print(f"Error checking cluster {cluster_name}: {e}")
         
         # Sprawdź monitoring
         async def check_monitoring():
@@ -356,10 +383,10 @@ async def get_cluster_details_async(cluster_name: str, include_resources: bool =
                     executor,
                     lambda: subprocess.run([
                         "kubectl", "get", "pods", "--namespace", "monitoring",
-                        "--context", f"kind-{cluster_name}",
+                        "--context", f"{provider}-{cluster_name}",
                         "-l", "app.kubernetes.io/name in (prometheus,grafana)",
                         "--no-headers"
-                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3)
+                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=1)
                 )
                 
                 # Sprawdź czy są oba pody (Prometheus i Grafana)
@@ -370,7 +397,7 @@ async def get_cluster_details_async(cluster_name: str, include_resources: bool =
                     cluster_info["monitoring"] = {"installed": bool(has_prometheus and has_grafana)}
                 else:
                     cluster_info["monitoring"] = {"installed": False}
-            except:
+            except Exception as e:
                 cluster_info["monitoring"] = {"installed": False}
         
         # Pobierz porty
@@ -405,6 +432,12 @@ async def get_cluster_details_async(cluster_name: str, include_resources: bool =
 @app.get("/api/v1/health")
 async def health():
     return {"status": "healthy", "service": "ClusterMaster API"}
+
+@app.post("/api/v1/cache/clear")
+async def clear_cache():
+    """Wyczyść cache klastrów (użyj po usunięciu/dodaniu klastra)"""
+    _cluster_cache.clear()
+    return {"message": "Cache cleared successfully", "cleared": True}
 
 @app.get("/api/v1/debug/docker")
 async def debug_docker():
@@ -461,22 +494,27 @@ async def debug_kind():
 
 @app.get("/api/v1/local-cluster/list")
 async def list_clusters():
-    """Lista klastrów Kind"""
-    result = run_kind_command(["get", "clusters"])
+    """Lista klastrów Kind i k3d"""
+    all_clusters = []
     
-    if result["returncode"] != 0:
-        return {
-            "clusters": [], 
-            "error": result["stderr"] or "Nie można pobrać listy klastrów",
-            "debug": result
-        }
+    # Pobierz klastry Kind
+    kind_result = run_kind_command(["get", "clusters"])
+    if kind_result["returncode"] == 0 and kind_result["stdout"].strip():
+        kind_clusters = kind_result["stdout"].strip().split('\n')
+        all_clusters.extend(kind_clusters)
     
-    clusters = result["stdout"].strip().split('\n') if result["stdout"].strip() else []
-    return {"clusters": clusters}
+    # Pobierz klastry k3d
+    try:
+        k3d_clusters = k3d_service.list_clusters()
+        all_clusters.extend(k3d_clusters)
+    except Exception as e:
+        print(f"Error fetching k3d clusters: {e}")
+    
+    return {"clusters": all_clusters}
 
 @app.get("/api/v1/local-cluster")
 async def list_clusters_detailed(include_resources: bool = False):
-    """Lista klastrów Kind z dodatkowymi informacjami - zoptymalizowana wersja z cache
+    """Lista klastrów Kind i k3d z dodatkowymi informacjami - zoptymalizowana wersja z cache
     
     Args:
         include_resources: Czy dołączyć szczegółowe informacje o zasobach (Docker stats) - wolniejsze
@@ -488,16 +526,23 @@ async def list_clusters_detailed(include_resources: bool = False):
     if cached_data:
         return cached_data
     
-    result = run_kind_command(["get", "clusters"])
+    cluster_names = []
     
-    if result["returncode"] != 0:
-        return {
-            "clusters": [], 
-            "error": result["stderr"] or "Nie można pobrać listy klastrów",
-            "debug": result
-        }
+    # Pobierz klastry Kind
+    kind_result = run_kind_command(["get", "clusters"])
+    if kind_result["returncode"] == 0 and kind_result["stdout"].strip():
+        kind_clusters = [name.strip() for name in kind_result["stdout"].strip().split('\n') if name.strip()]
+        cluster_names.extend(kind_clusters)
     
-    cluster_names = [name.strip() for name in result["stdout"].strip().split('\n') if name.strip()]
+    # Pobierz klastry k3d
+    try:
+        k3d_clusters = k3d_service.list_clusters()
+        cluster_names.extend(k3d_clusters)
+    except Exception as e:
+        print(f"Error fetching k3d clusters: {e}")
+    
+    if not cluster_names:
+        return {"clusters": []}
     
     # Zbierz szczegółowe informacje o wszystkich klastrach równolegle
     detailed_clusters = await asyncio.gather(
@@ -524,12 +569,101 @@ async def list_clusters_detailed(include_resources: bool = False):
 
 @app.post("/api/v1/local-cluster/create")
 async def create_cluster(cluster_data: dict):
-    """Utwórz nowy klaster Kind"""
+    """Utwórz nowy klaster Kind lub k3d"""
     cluster_name = cluster_data.get("cluster_name", "test-cluster")
     node_count = cluster_data.get("node_count", 1)
     k8s_version = cluster_data.get("k8s_version")
     install_monitoring = cluster_data.get("install_monitoring", False)
+    provider = cluster_data.get("provider", "kind")  # "kind" lub "k3d"
     
+    # Walidacja providera
+    if provider not in ["kind", "k3d"]:
+        return {"error": f"Nieznany provider: {provider}. Użyj 'kind' lub 'k3d'", "status": "error"}
+    
+    # === K3D IMPLEMENTATION ===
+    if provider == "k3d":
+        # Sprawdź czy k3d jest zainstalowany
+        if not k3d_service.is_installed():
+            return {
+                "error": "k3d nie jest zainstalowany. Zainstaluj k3d: https://k3d.io/",
+                "status": "error"
+            }
+        
+        # Sprawdź czy klaster już istnieje
+        existing_clusters = k3d_service.list_clusters()
+        if cluster_name in existing_clusters:
+            return {
+                "message": f"Klaster {cluster_name} już istnieje",
+                "status": "exists",
+                "cluster_name": cluster_name,
+                "node_count": node_count,
+                "provider": "k3d"
+            }
+        
+        try:
+            # Przypisz porty dla klastra
+            cluster_ports = port_manager.assign_ports_for_cluster(cluster_name)
+            
+            # k3d używa agents (worker nodes) i servers (control plane)
+            # Dla uproszczenia: 1 server + (node_count - 1) agents
+            servers = 1
+            agents = max(0, node_count - 1)
+            
+            # Utwórz klaster k3d
+            result = k3d_service.create_cluster(
+                cluster_name=cluster_name,
+                agents=agents,
+                servers=servers,
+                ports=cluster_ports
+            )
+            
+            if not result["success"]:
+                return {
+                    "error": f"Nie udało się utworzyć klastra k3d: {result.get('error', 'Unknown error')}",
+                    "status": "error",
+                    "debug": result
+                }
+            
+            cluster_result = {
+                "message": f"Klaster k3d {cluster_name} został utworzony z {agents} agent nodes + {servers} server node = {node_count} węzłów",
+                "status": "success",
+                "cluster_name": cluster_name,
+                "node_count": node_count,
+                "agents": agents,
+                "servers": servers,
+                "context": f"k3d-{cluster_name}",
+                "assigned_ports": cluster_ports,
+                "provider": "k3d",
+                "info": result.get("message", "")
+            }
+            
+            # Wyczyść cache
+            _cluster_cache.clear()
+            
+            # Instalacja monitoringu jeśli zaznaczone
+            if install_monitoring:
+                print(f"Installing monitoring for k3d cluster {cluster_name}...")
+                import time
+                time.sleep(15)
+                
+                try:
+                    monitoring_result = helm_service.install_monitoring_stack(cluster_name)
+                    if monitoring_result.get("success"):
+                        cluster_result["monitoring"] = "installed"
+                        cluster_result["monitoring_info"] = monitoring_result.get("message", "")
+                    else:
+                        cluster_result["monitoring"] = "failed"
+                        cluster_result["monitoring_error"] = monitoring_result.get("error", "Unknown error")
+                except Exception as e:
+                    cluster_result["monitoring"] = "failed"
+                    cluster_result["monitoring_error"] = str(e)
+            
+            return cluster_result
+            
+        except Exception as e:
+            return {"error": f"Błąd podczas tworzenia klastra k3d: {str(e)}", "status": "error"}
+    
+    # === KIND IMPLEMENTATION (ORIGINAL) ===
     # Sprawdź czy klaster już istnieje
     result = run_kind_command(["get", "clusters"])
     if result["returncode"] == 0 and cluster_name in result["stdout"]:
@@ -537,7 +671,8 @@ async def create_cluster(cluster_data: dict):
             "message": f"Klaster {cluster_name} już istnieje", 
             "status": "exists",
             "cluster_name": cluster_name,
-            "node_count": node_count
+            "node_count": node_count,
+            "provider": "kind"
         }
     
     try:
@@ -580,7 +715,8 @@ async def create_cluster(cluster_data: dict):
             "cluster_name": cluster_name,
             "node_count": node_count,
             "context": f"kind-{cluster_name}",
-            "assigned_ports": cluster_ports
+            "assigned_ports": cluster_ports,
+            "provider": "kind"
         }
         
         # Wyczyść cache
@@ -627,44 +763,75 @@ async def create_cluster(cluster_data: dict):
 
 @app.delete("/api/v1/local-cluster/{cluster_name}")
 async def delete_cluster(cluster_name: str):
-    """Usuń klaster Kind"""
+    """Usuń klaster (Kind lub k3d)"""
+    
+    # Wykryj provider
+    provider = detect_cluster_provider(cluster_name)
     
     # Najpierw wyczyść zasoby monitoringu
     cleanup_result = helm_service.cleanup_cluster_resources(cluster_name)
     
-    result = run_kind_command(["delete", "cluster", "--name", cluster_name])
-    
-    if result["returncode"] != 0:
-        return {
-            "error": f"Nie udało się usunąć klastra: {result['stderr']}",
-            "debug": result
-        }
+    # Usuń klaster w zależności od providera
+    if provider == "k3d":
+        try:
+            success = k3d_service.delete_cluster(cluster_name)
+            if not success:
+                return {
+                    "error": f"Nie udało się usunąć klastra k3d: {cluster_name}",
+                    "provider": "k3d"
+                }
+        except Exception as e:
+            return {
+                "error": f"Błąd podczas usuwania klastra k3d: {str(e)}",
+                "provider": "k3d"
+            }
+    else:  # kind
+        result = run_kind_command(["delete", "cluster", "--name", cluster_name])
+        
+        if result["returncode"] != 0:
+            return {
+                "error": f"Nie udało się usunąć klastra Kind: {result['stderr']}",
+                "debug": result,
+                "provider": "kind"
+            }
     
     # Wyczyść cache
     _cluster_cache.clear()
     
     return {
         "message": f"Klaster {cluster_name} został usunięty",
-        "cleanup": cleanup_result
+        "cleanup": cleanup_result,
+        "provider": provider
     }
 
 @app.get("/api/v1/local-cluster/{cluster_name}/status")
 async def get_cluster_status(cluster_name: str):
-    """Sprawdź status klastra - ulepszona wersja"""
+    """Sprawdź status klastra (Kind lub k3d) - ulepszona wersja"""
+    # Wykryj provider
+    provider = detect_cluster_provider(cluster_name)
+    
     # Sprawdź czy klaster istnieje
-    result = run_kind_command(["get", "clusters"])
-    
-    if result["returncode"] != 0:
-        return {"error": "Nie można sprawdzić listy klastrów", "debug": result}
-    
-    if cluster_name not in result["stdout"]:
-        return {"error": "Klaster nie istnieje", "cluster_name": cluster_name}
+    if provider == "k3d":
+        try:
+            k3d_clusters = k3d_service.list_clusters()
+            if cluster_name not in k3d_clusters:
+                return {"error": "Klaster k3d nie istnieje", "cluster_name": cluster_name, "provider": "k3d"}
+        except Exception as e:
+            return {"error": f"Nie można sprawdzić listy klastrów k3d: {str(e)}", "provider": "k3d"}
+    else:  # kind
+        result = run_kind_command(["get", "clusters"])
+        
+        if result["returncode"] != 0:
+            return {"error": "Nie można sprawdzić listy klastrów Kind", "debug": result, "provider": "kind"}
+        
+        if cluster_name not in result["stdout"]:
+            return {"error": "Klaster Kind nie istnieje", "cluster_name": cluster_name, "provider": "kind"}
     
     try:
         # Sprawdź węzły
         kubectl_result = subprocess.run([
             "kubectl", "get", "nodes", 
-            "--context", f"kind-{cluster_name}",
+            "--context", f"{provider}-{cluster_name}",
             "-o", "json"
         ], capture_output=True, text=True, encoding='utf-8', errors='replace')
         
@@ -684,8 +851,9 @@ async def get_cluster_status(cluster_name: str):
                 node_name = node["metadata"]["name"]
                 roles = []
                 
-                # Sprawdź role węzła
-                if "node-role.kubernetes.io/control-plane" in node["metadata"].get("labels", {}):
+                # Sprawdź role węzła (dla Kind i k3d)
+                if "node-role.kubernetes.io/control-plane" in node["metadata"].get("labels", {}) or \
+                   "node-role.kubernetes.io/master" in node["metadata"].get("labels", {}):
                     roles.append("control-plane")
                     nodes_info["control_plane_nodes"] += 1
                 else:
@@ -710,7 +878,8 @@ async def get_cluster_status(cluster_name: str):
         return {
             "cluster_name": cluster_name,
             "status": "running" if kubectl_result.returncode == 0 else "error",
-            "context": f"kind-{cluster_name}",
+            "context": f"{provider}-{cluster_name}",
+            "provider": provider,
             "nodes_info": nodes_info,
             "kubectl_available": kubectl_result.returncode == 0
         }
@@ -720,19 +889,31 @@ async def get_cluster_status(cluster_name: str):
             "cluster_name": cluster_name,
             "status": "error",
             "error": f"Nie można pobrać szczegółów klastra: {str(e)}",
-            "context": f"kind-{cluster_name}"
+            "context": f"{provider}-{cluster_name}",
+            "provider": provider
         }
 
 # Dodaj endpoint do sprawdzania konfiguracji klastra
 @app.get("/api/v1/local-cluster/{cluster_name}/config")
 async def get_cluster_config(cluster_name: str):
-    """Pobierz konfigurację klastra"""
+    """Pobierz konfigurację klastra (Kind lub k3d)"""
     try:
+        # Wykryj provider
+        provider = detect_cluster_provider(cluster_name)
+        
         # Sprawdź kontenery Docker dla klastra
-        docker_result = subprocess.run([
-            "docker", "ps", "--filter", f"label=io.x-k8s.kind.cluster={cluster_name}",
-            "--format", "json"
-        ], capture_output=True, text=True)
+        if provider == "k3d":
+            # k3d używa labelki k3d.cluster
+            docker_result = subprocess.run([
+                "docker", "ps", "--filter", f"label=k3d.cluster.name={cluster_name}",
+                "--format", "json"
+            ], capture_output=True, text=True)
+        else:  # kind
+            # Kind używa labelki io.x-k8s.kind.cluster
+            docker_result = subprocess.run([
+                "docker", "ps", "--filter", f"label=io.x-k8s.kind.cluster={cluster_name}",
+                "--format", "json"
+            ], capture_output=True, text=True)
         
         containers = []
         if docker_result.returncode == 0:
@@ -748,6 +929,7 @@ async def get_cluster_config(cluster_name: str):
         
         return {
             "cluster_name": cluster_name,
+            "provider": provider,
             "containers": containers,
             "container_count": len(containers)
         }
@@ -760,17 +942,21 @@ async def get_cluster_config(cluster_name: str):
 
 @app.get("/api/v1/local-cluster/{cluster_name}/resources")
 async def get_cluster_resources(cluster_name: str):
-    """Sprawdź zasoby klastra - CPU, RAM, storage"""
+    """Sprawdź zasoby klastra (Kind lub k3d) - CPU, RAM, storage"""
     try:
+        # Wykryj provider
+        provider = detect_cluster_provider(cluster_name)
+        
         # Sprawdź węzły i ich zasoby
         kubectl_result = subprocess.run([
             "kubectl", "get", "nodes", 
-            "--context", f"kind-{cluster_name}",
+            "--context", f"{provider}-{cluster_name}",
             "-o", "json"
         ], capture_output=True, text=True, encoding='utf-8', errors='replace')
         
         resources_info = {
             "cluster_name": cluster_name,
+            "provider": provider,
             "total_resources": {
                 "cpu": "0",
                 "memory": "0Mi",
@@ -806,9 +992,10 @@ async def get_cluster_resources(cluster_name: str):
                 alloc_memory = allocatable.get("memory", "0Ki")
                 alloc_storage = allocatable.get("ephemeral-storage", "0Ki")
                 
-                # Role węzła
+                # Role węzła (dla Kind i k3d)
                 roles = []
-                if "node-role.kubernetes.io/control-plane" in node["metadata"].get("labels", {}):
+                if "node-role.kubernetes.io/control-plane" in node["metadata"].get("labels", {}) or \
+                   "node-role.kubernetes.io/master" in node["metadata"].get("labels", {}):
                     roles.append("control-plane")
                 else:
                     roles.append("worker")
@@ -867,26 +1054,9 @@ async def get_cluster_resources(cluster_name: str):
                 "node_count": len(nodes_data.get("items", []))
             }
         
-        # Dodatkowo - sprawdź kontenery Docker
-        docker_result = subprocess.run([
-            "docker", "stats", "--no-stream", "--format", "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}",
-            "test1-control-plane", "test1-worker", "test1-worker2", "test1-worker3"
-        ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+        # Dodatkowo - sprawdź kontenery Docker (pomiń dla uproszczenia, bo nazwy kontenerów się różnią)
+        # Można to dodać później jeśli potrzebne
         
-        docker_stats = []
-        if docker_result.returncode == 0:
-            lines = docker_result.stdout.strip().split('\n')
-            for line in lines[1:]:  # Pomiń header
-                parts = line.split('\t')
-                if len(parts) >= 4:
-                    docker_stats.append({
-                        "container": parts[0],
-                        "cpu_percent": parts[1],
-                        "memory_usage": parts[2],
-                        "memory_percent": parts[3]
-                    })
-        
-        resources_info["docker_stats"] = docker_stats
         resources_info["kubectl_available"] = kubectl_result.returncode == 0
         
         return resources_info
@@ -894,6 +1064,7 @@ async def get_cluster_resources(cluster_name: str):
     except Exception as e:
         return {
             "cluster_name": cluster_name,
+            "provider": detect_cluster_provider(cluster_name),
             "error": f"Nie można pobrać zasobów klastra: {str(e)}"
         }
 
@@ -1298,8 +1469,39 @@ async def get_available_apps():
 
 @app.get("/api/v1/clusters/{cluster_name}/scaling/config")
 async def get_cluster_scaling_config(cluster_name: str):
-    """Get current scaling configuration for a Kind cluster"""
+    """Get current scaling configuration for Kind or k3d cluster"""
     try:
+        # Detect provider
+        provider = detect_cluster_provider(cluster_name)
+        
+        # === K3D IMPLEMENTATION ===
+        if provider == "k3d":
+            cluster_info = k3d_service.get_cluster_info(cluster_name)
+            
+            if not cluster_info.get("success"):
+                return {
+                    "success": False,
+                    "error": cluster_info.get("error", "Failed to get k3d cluster info")
+                }
+            
+            nodes = cluster_info.get("nodes", [])
+            server_count = sum(1 for n in nodes if n.get("role") == "server")
+            agent_count = sum(1 for n in nodes if n.get("role") == "agent")
+            
+            return {
+                "success": True,
+                "provider": "k3d",
+                "config": {
+                    "controlPlaneNodes": server_count,
+                    "workerNodes": agent_count,
+                    "totalNodes": server_count + agent_count,
+                    "cpuPerNode": 0,  # k3d doesn't set explicit CPU limits by default
+                    "ramPerNode": 0   # k3d doesn't set explicit RAM limits by default
+                },
+                "info": "k3d supports LIVE node scaling without cluster recreation"
+            }
+        
+        # === KIND IMPLEMENTATION (ORIGINAL) ===
         # Get all nodes for this cluster
         result = subprocess.run(
             ['kubectl', 'get', 'nodes', '--context', f'kind-{cluster_name}', '-o', 'json'],
@@ -1361,13 +1563,15 @@ async def get_cluster_scaling_config(cluster_name: str):
         
         return {
             "success": True,
+            "provider": "kind",
             "config": {
                 "controlPlaneNodes": control_plane_count,
                 "workerNodes": worker_count,
                 "totalNodes": control_plane_count + worker_count,
                 "cpuPerNode": cpu_per_node,
                 "ramPerNode": ram_per_node
-            }
+            },
+            "warning": "Kind requires cluster recreation for scaling changes"
         }
         
     except subprocess.CalledProcessError as e:
@@ -1477,8 +1681,9 @@ async def get_cluster_resource_usage(cluster_name: str):
 @app.post("/api/v1/clusters/{cluster_name}/scaling/apply")
 async def apply_cluster_scaling(cluster_name: str, scaling_config: dict):
     """
-    Apply scaling changes to a Kind cluster by recreating it
-    WARNING: This will delete and recreate the cluster, losing all deployments!
+    Apply scaling changes to cluster.
+    Kind: Recreates cluster (data loss warning).
+    k3d: Live node addition/removal without recreate!
     """
     try:
         worker_nodes = scaling_config.get('workerNodes', 2)
@@ -1487,6 +1692,40 @@ async def apply_cluster_scaling(cluster_name: str, scaling_config: dict):
         
         operations = []
         
+        # Detect provider
+        provider = detect_cluster_provider(cluster_name)
+        
+        # === K3D IMPLEMENTATION (LIVE SCALING!) ===
+        if provider == "k3d":
+            operations.append(f"🎯 Scaling k3d cluster '{cluster_name}' to {worker_nodes} agent nodes...")
+            
+            # Use k3d's live scaling
+            scale_result = k3d_service.scale_cluster(cluster_name, worker_nodes)
+            
+            if not scale_result.get("success"):
+                return {
+                    "success": False,
+                    "error": scale_result.get("error", "Failed to scale k3d cluster"),
+                    "operations": operations
+                }
+            
+            # Add k3d operations to our log
+            operations.extend(scale_result.get("operations", []))
+            
+            # Get updated cluster info
+            cluster_info = k3d_service.get_cluster_info(cluster_name)
+            nodes = cluster_info.get("nodes", [])
+            agent_count = sum(1 for n in nodes if n.get("role") == "agent")
+            
+            return {
+                "success": True,
+                "message": f"✅ k3d cluster scaled to {agent_count} agent nodes (LIVE - no recreate!)",
+                "operations": operations,
+                "provider": "k3d",
+                "info": "✨ k3d supports live scaling - your deployments are preserved!"
+            }
+        
+        # === KIND IMPLEMENTATION (RECREATE) ===
         # Create new cluster configuration
         config_data = {
             "kind": "Cluster",
@@ -1558,6 +1797,7 @@ async def apply_cluster_scaling(cluster_name: str, scaling_config: dict):
             "success": True,
             "message": f"Cluster successfully scaled to {worker_nodes} worker nodes",
             "operations": operations,
+            "provider": "kind",
             "warning": "⚠️ Cluster was recreated - all previous deployments and data were reset"
         }
         

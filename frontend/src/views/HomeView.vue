@@ -119,15 +119,23 @@
               <li v-if="loading" class="text-gray-500 text-center py-4">
                 Ładowanie klastrów...
               </li>
-              <li v-else-if="clusters.length === 0" class="text-gray-500 text-center py-4">
+              <li v-else-if="clusterDetails.length === 0" class="text-gray-500 text-center py-4">
                 Brak klastrów lokalnych
               </li>
-              <li v-else v-for="cluster in clusters" :key="cluster" class="flex justify-between items-center p-2 bg-gray-50 rounded">
-                <span>{{ cluster }}</span>
+              <li v-else v-for="cluster in clusterDetails" :key="cluster.name" class="flex justify-between items-center p-2 bg-gray-50 rounded">
+                <div class="flex items-center space-x-2">
+                  <span>{{ cluster.name }}</span>
+                  <span v-if="cluster.provider === 'k3d'" class="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full font-medium">
+                    🚀 k3d
+                  </span>
+                  <span v-else-if="cluster.provider === 'kind'" class="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">
+                    🔵 kind
+                  </span>
+                </div>
                 <div class="flex items-center space-x-2">
                   <span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">Aktywny</span>
                   <router-link 
-                    :to="`/cluster/${cluster}`"
+                    :to="`/clusters/${cluster.name}`"
                     class="text-blue-600 hover:text-blue-800 text-xs font-medium"
                   >
                     Szczegóły
@@ -241,12 +249,13 @@
 import { useAuthStore } from '../stores/auth'
 import { useRouter, useRoute } from 'vue-router'
 import { ref, onMounted } from 'vue'
-import { ApiService } from '@/services/api'
+import { ApiService, type ClusterInfo } from '@/services/api'
 
 const authStore = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 const clusters = ref<string[]>([])
+const clusterDetails = ref<ClusterInfo[]>([])
 const loading = ref(false)
 const showSuccessNotification = ref(false)
 const successMessage = ref("")
@@ -283,12 +292,14 @@ const loadClusters = async () => {
   loading.value = true
   try {
     console.log("Ładowanie klastrów...")
-    const result = await ApiService.listClusters()
-    console.log("Otrzymane klastry:", result)
-    clusters.value = result.clusters || []
+    const result = await ApiService.listClustersDetailed(false)
+    console.log("Otrzymane szczegóły klastrów:", result)
+    clusterDetails.value = result.clusters || []
+    clusters.value = clusterDetails.value.map(c => c.name)
   } catch (error) {
     console.error('Błąd ładowania klastrów:', error)
     clusters.value = []
+    clusterDetails.value = []
   } finally {
     loading.value = false
   }
