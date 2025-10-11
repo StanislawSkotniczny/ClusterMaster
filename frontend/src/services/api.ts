@@ -275,4 +275,36 @@ export class ApiService {
 
         return response.blob()
     }
+
+    // Cluster Scaling
+    static async getClusterScalingConfig(clusterName: string): Promise<{
+        success: boolean
+        config?: {
+            controlPlaneNodes: number
+            workerNodes: number
+            totalNodes: number
+            cpuPerNode: number
+            ramPerNode: number
+        }
+        error?: string
+    }> {
+        return this.request(`/clusters/${clusterName}/scaling/config`)
+    }
+
+    static async applyClusterScaling(clusterName: string, config: {
+        workerNodes: number
+        cpuPerNode: number
+        ramPerNode: number
+    }): Promise<{
+        success: boolean
+        message?: string
+        operations?: string[]
+        warning?: string
+        error?: string
+    }> {
+        return this.request(`/clusters/${clusterName}/scaling/apply`, {
+            method: 'POST',
+            body: JSON.stringify(config)
+        })
+    }
 }

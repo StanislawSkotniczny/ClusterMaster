@@ -1293,3 +1293,284 @@ async def get_available_apps():
             }
         ]
     }
+
+# ===== CLUSTER SCALING ENDPOINTS =====
+
+@app.get("/api/v1/clusters/{cluster_name}/scaling/config")
+async def get_cluster_scaling_config(cluster_name: str):
+    """Get current scaling configuration for a Kind cluster"""
+    try:
+        # Get all nodes for this cluster
+        result = subprocess.run(
+            ['kubectl', 'get', 'nodes', '--context', f'kind-{cluster_name}', '-o', 'json'],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        nodes_data = json.loads(result.stdout)
+        nodes = nodes_data.get('items', [])
+        
+        # Separate control plane and worker nodes
+        control_plane_count = 0
+        worker_count = 0
+        
+        for node in nodes:
+            labels = node.get('metadata', {}).get('labels', {})
+            if 'node-role.kubernetes.io/control-plane' in labels or 'node-role.kubernetes.io/master' in labels:
+                control_plane_count += 1
+            else:
+                worker_count += 1
+        
+        # Get Docker container info for a worker node to check resources
+        cpu_per_node = 2  # default
+        ram_per_node = 4096  # default in MB
+        
+        if worker_count > 0:
+            # Find a worker node container
+            docker_result = subprocess.run(
+                ['docker', 'ps', '--filter', f'name={cluster_name}-worker', '--format', '{{.Names}}'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            if docker_result.stdout.strip():
+                container_name = docker_result.stdout.strip().split('\n')[0]
+                
+                # Get container info
+                inspect_result = subprocess.run(
+                    ['docker', 'inspect', container_name],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                
+                container_info = json.loads(inspect_result.stdout)[0]
+                host_config = container_info.get('HostConfig', {})
+                
+                # CPU (NanoCpus / 1e9)
+                nano_cpus = host_config.get('NanoCpus', 0)
+                if nano_cpus > 0:
+                    cpu_per_node = int(nano_cpus / 1e9)
+                
+                # Memory in MB
+                memory = host_config.get('Memory', 0)
+                if memory > 0:
+                    ram_per_node = int(memory / (1024 * 1024))
+        
+        return {
+            "success": True,
+            "config": {
+                "controlPlaneNodes": control_plane_count,
+                "workerNodes": worker_count,
+                "totalNodes": control_plane_count + worker_count,
+                "cpuPerNode": cpu_per_node,
+                "ramPerNode": ram_per_node
+            }
+        }
+        
+    except subprocess.CalledProcessError as e:
+        return {
+            "success": False,
+            "error": f"Failed to get cluster config: {e.stderr}"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+@app.get("/api/v1/clusters/{cluster_name}/scaling/resources")
+async def get_cluster_resource_usage(cluster_name: str):
+    """Get real-time CPU and RAM usage for cluster nodes"""
+    try:
+        # Get Docker stats for all containers in this cluster
+        stats_result = subprocess.run(
+            ['docker', 'stats', '--no-stream', '--filter', f'name={cluster_name}', 
+             '--format', '{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}'],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        nodes_usage = []
+        total_cpu = 0.0
+        total_mem_mb = 0.0
+        
+        for line in stats_result.stdout.strip().split('\n'):
+            if not line:
+                continue
+                
+            parts = line.split('\t')
+            if len(parts) < 4:
+                continue
+                
+            name = parts[0]
+            cpu_str = parts[1].replace('%', '')
+            mem_usage = parts[2]  # e.g., "450.5MiB / 8GiB"
+            mem_percent = parts[3].replace('%', '')
+            
+            # Parse memory usage
+            mem_used_mb = 0
+            mem_limit_mb = 0
+            if '/' in mem_usage:
+                used, limit = mem_usage.split('/')
+                
+                # Parse used memory
+                if 'GiB' in used:
+                    mem_used_mb = float(used.replace('GiB', '').strip()) * 1024
+                elif 'MiB' in used:
+                    mem_used_mb = float(used.replace('MiB', '').strip())
+                
+                # Parse limit memory
+                if 'GiB' in limit:
+                    mem_limit_mb = float(limit.replace('GiB', '').strip()) * 1024
+                elif 'MiB' in limit:
+                    mem_limit_mb = float(limit.replace('MiB', '').strip())
+            
+            # Determine node type
+            node_type = 'worker'
+            if 'control-plane' in name:
+                node_type = 'control-plane'
+            
+            nodes_usage.append({
+                "name": name,
+                "type": node_type,
+                "cpu_percent": float(cpu_str) if cpu_str else 0.0,
+                "memory_used_mb": round(mem_used_mb, 2),
+                "memory_limit_mb": round(mem_limit_mb, 2),
+                "memory_percent": float(mem_percent) if mem_percent else 0.0
+            })
+            
+            total_cpu += float(cpu_str) if cpu_str else 0.0
+            total_mem_mb += mem_used_mb
+        
+        # Calculate averages
+        node_count = len(nodes_usage)
+        avg_cpu = round(total_cpu / node_count, 2) if node_count > 0 else 0
+        
+        return {
+            "success": True,
+            "cluster_name": cluster_name,
+            "nodes": nodes_usage,
+            "summary": {
+                "total_nodes": node_count,
+                "avg_cpu_percent": avg_cpu,
+                "total_memory_mb": round(total_mem_mb, 2)
+            }
+        }
+        
+    except subprocess.CalledProcessError as e:
+        return {
+            "success": False,
+            "error": f"Failed to get resource usage: {e.stderr if e.stderr else str(e)}"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+@app.post("/api/v1/clusters/{cluster_name}/scaling/apply")
+async def apply_cluster_scaling(cluster_name: str, scaling_config: dict):
+    """
+    Apply scaling changes to a Kind cluster by recreating it
+    WARNING: This will delete and recreate the cluster, losing all deployments!
+    """
+    try:
+        worker_nodes = scaling_config.get('workerNodes', 2)
+        cpu_per_node = scaling_config.get('cpuPerNode', 2)
+        ram_per_node = scaling_config.get('ramPerNode', 4096)
+        
+        operations = []
+        
+        # Create new cluster configuration
+        config_data = {
+            "kind": "Cluster",
+            "apiVersion": "kind.x-k8s.io/v1alpha4",
+            "nodes": [
+                {"role": "control-plane"}
+            ]
+        }
+        
+        # Add worker nodes
+        for i in range(worker_nodes):
+            config_data["nodes"].append({"role": "worker"})
+        
+        # Write config to temp file
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            yaml.dump(config_data, f)
+            config_path = f.name
+        
+        try:
+            # Delete old cluster
+            operations.append("🗑️ Deleting old cluster...")
+            subprocess.run(
+                ['kind', 'delete', 'cluster', '--name', cluster_name],
+                capture_output=True,
+                text=True,
+                check=False  # Don't fail if cluster doesn't exist
+            )
+            
+            # Small delay to ensure cleanup
+            import time
+            time.sleep(2)
+            
+            # Invalidate cache
+            _cluster_cache.clear()
+            
+            # Create new cluster with updated config
+            operations.append(f"🚀 Creating cluster with {worker_nodes} worker node(s)...")
+            create_result = subprocess.run(
+                ['kind', 'create', 'cluster', '--name', cluster_name, '--config', config_path, '--wait', '60s'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            operations.append("✅ Cluster recreated successfully")
+            
+            # Wait for nodes to be fully ready
+            operations.append("⏳ Waiting for nodes to become ready...")
+            time.sleep(5)
+            
+            # Verify nodes
+            verify_result = subprocess.run(
+                ['kubectl', 'get', 'nodes', '--context', f'kind-{cluster_name}', '--no-headers'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            node_count = len(verify_result.stdout.strip().split('\n'))
+            operations.append(f"📊 Cluster now has {node_count} total nodes (1 control-plane + {worker_nodes} workers)")
+            
+        finally:
+            # Clean up temp file
+            if os.path.exists(config_path):
+                os.unlink(config_path)
+        
+        return {
+            "success": True,
+            "message": f"Cluster successfully scaled to {worker_nodes} worker nodes",
+            "operations": operations,
+            "warning": "⚠️ Cluster was recreated - all previous deployments and data were reset"
+        }
+        
+    except subprocess.CalledProcessError as e:
+        error_msg = e.stderr if e.stderr else str(e)
+        return {
+            "success": False,
+            "error": f"Failed to scale cluster: {error_msg}",
+            "operations": operations
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Unexpected error: {str(e)}",
+            "operations": operations
+        }

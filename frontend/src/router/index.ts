@@ -9,6 +9,7 @@ import MonitoringView from '../views/MonitoringView.vue'
 import BackupView from '../views/BackupView.vue'
 import ClusterDetailsView from '../views/ClusterDetailsView.vue'
 import AppsView from '../views/AppsView.vue'
+import ScaleView from '../views/ScaleView.vue'
 
 const routes = [
   {
@@ -42,6 +43,13 @@ const routes = [
   {
     path: '/cluster/:name',
     component: ClusterDetailsView,
+    meta: { requiresAuth: true },
+    props: true
+  },
+  {
+    path: '/clusters/:name/scale',
+    name: 'scale',
+    component: ScaleView,
     meta: { requiresAuth: true },
     props: true
   },
