@@ -1,17 +1,17 @@
 <template>
-  <div class="container mx-auto p-6">
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
     <div class="mb-8">
-      <h1 class="text-3xl font-bold text-gray-900 mb-2">🏪 App Store</h1>
-      <p class="text-gray-600">Instaluj aplikacje na swoich klastrach Kubernetes jednym kliknięciem</p>
+      <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">App Store</h1>
+      <p class="text-gray-600 dark:text-gray-400">Instaluj aplikacje na swoich klastrach Kubernetes jednym kliknięciem</p>
     </div>
 
     <!-- Cluster Selection -->
     <div class="mb-6">
-      <label class="block text-sm font-medium text-gray-700 mb-2">Wybierz klaster:</label>
+      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Wybierz klaster:</label>
       <div class="relative">
         <select 
           v-model="selectedCluster" 
-          class="w-full md:w-1/3 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+          class="w-full md:w-1/3 rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500"
           :disabled="isLoadingClusters"
         >
           <option value="">{{ isLoadingClusters ? 'Ładowanie klastrów...' : 'Wybierz klaster...' }}</option>
@@ -20,7 +20,7 @@
           </option>
         </select>
         <div v-if="isLoadingClusters" class="absolute right-3 top-1/2 transform -translate-y-1/2">
-          <svg class="animate-spin h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <svg class="animate-spin h-5 w-5 text-blue-500 dark:text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
@@ -29,8 +29,8 @@
     </div>
 
     <!-- Search Section -->
-    <div v-if="selectedCluster" class="mb-8 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
-      <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+    <div v-if="selectedCluster" class="mb-8 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg p-6 border border-blue-200 dark:border-blue-800">
+      <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
         <span class="text-2xl mr-2">🔍</span>
         Wyszukaj aplikacje w Helm Charts
       </h2>
@@ -40,12 +40,12 @@
           @keyup.enter="performSearch"
           type="text"
           placeholder="Wpisz nazwę aplikacji (np. nginx, wordpress, jenkins)..."
-          class="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+          class="flex-1 rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500"
         />
         <button
           @click="performSearch"
           :disabled="searchQuery.length < 2 || isSearching"
-          class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+          class="px-6 py-2 bg-blue-600 dark:bg-blue-500 text-white rounded-md hover:bg-blue-700 dark:hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
         >
           <svg v-if="isSearching" class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -57,28 +57,28 @@
       
       <!-- Search Results -->
       <div v-if="searchResults.length > 0" class="mt-6">
-        <h3 class="text-lg font-medium text-gray-900 mb-3">
+        <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100 mb-3">
           Znaleziono {{ searchResults.length }} aplikacji
         </h3>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
           <div
             v-for="chart in searchResults"
             :key="chart.full_name"
-            class="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow"
+            class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition-shadow"
           >
             <div class="flex justify-between items-start mb-2">
-              <h4 class="font-semibold text-gray-900">{{ chart.name }}</h4>
-              <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">{{ chart.repository }}</span>
+              <h4 class="font-semibold text-gray-900 dark:text-gray-100">{{ chart.name }}</h4>
+              <span class="text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-300 px-2 py-1 rounded">{{ chart.repository }}</span>
             </div>
-            <p class="text-sm text-gray-600 mb-2 line-clamp-2">{{ chart.description || 'Brak opisu' }}</p>
-            <div class="text-xs text-gray-500 mb-3">
+            <p class="text-sm text-gray-600 dark:text-gray-400 mb-2 line-clamp-2">{{ chart.description || 'Brak opisu' }}</p>
+            <div class="text-xs text-gray-500 dark:text-gray-400 mb-3">
               <div>Chart: v{{ chart.version }}</div>
               <div v-if="chart.app_version">App: v{{ chart.app_version }}</div>
             </div>
             <button
               @click="installCustomApp(chart)"
               :disabled="installingApps.includes(chart.full_name)"
-              class="w-full px-3 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              class="w-full px-3 py-2 bg-green-600 dark:bg-green-700 text-white text-sm rounded hover:bg-green-700 dark:hover:bg-green-600 disabled:bg-gray-400 dark:disabled:bg-gray-700 disabled:cursor-not-allowed"
             >
               {{ installingApps.includes(chart.full_name) ? 'Instaluję...' : '+ Zainstaluj' }}
             </button>
@@ -86,20 +86,20 @@
         </div>
       </div>
       
-      <div v-else-if="searchPerformed && !isSearching" class="mt-4 text-center text-gray-500">
+      <div v-else-if="searchPerformed && !isSearching" class="mt-4 text-center text-gray-500 dark:text-gray-400">
         Nie znaleziono aplikacji dla zapytania "{{ searchQuery }}"
       </div>
     </div>
 
-    <div v-if="!selectedCluster" class="bg-blue-50 border border-blue-200 rounded-md p-4 mb-6">
+    <div v-if="!selectedCluster" class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md p-4 mb-6">
       <div class="flex">
         <div class="flex-shrink-0">
-          <svg class="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+          <svg class="h-5 w-5 text-blue-400 dark:text-blue-500" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
           </svg>
         </div>
         <div class="ml-3">
-          <p class="text-sm text-blue-800">
+          <p class="text-sm text-blue-800 dark:text-blue-300">
             Wybierz klaster aby przeglądać i instalować aplikacje.
           </p>
         </div>
@@ -108,7 +108,7 @@
 
     <!-- Recommended Apps -->
     <div v-if="selectedCluster" class="mb-6">
-      <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+      <h2 class="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center">
         <span class="text-2xl mr-2">⭐</span>
         Polecane aplikacje
       </h2>
@@ -118,7 +118,7 @@
     <div v-if="selectedCluster" class="space-y-8">
       <!-- Category: Databases -->
       <div>
-        <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+        <h2 class="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center">
           <span class="text-2xl mr-2">🗄️</span>
           Bazy danych
         </h2>
@@ -136,7 +136,7 @@
 
       <!-- Category: Message Brokers -->
       <div>
-        <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+        <h2 class="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center">
           <span class="text-2xl mr-2">📨</span>
           Message Brokers
         </h2>
@@ -154,7 +154,7 @@
 
       <!-- Category: Storage -->
       <div>
-        <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+        <h2 class="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center">
           <span class="text-2xl mr-2">💾</span>
           Storage
         </h2>
@@ -172,7 +172,7 @@
 
       <!-- Category: DevOps Tools -->
       <div>
-        <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+        <h2 class="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center">
           <span class="text-2xl mr-2">🔧</span>
           DevOps Tools
         </h2>
@@ -190,28 +190,28 @@
     </div>
 
     <!-- Status Messages -->
-    <div v-if="statusMessage" class="fixed bottom-4 right-4 max-w-sm">
+    <div v-if="statusMessage" class="fixed bottom-4 right-4 max-w-sm z-50">
       <div class="rounded-md p-4 shadow-lg" 
-           :class="statusType === 'success' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'">
+           :class="statusType === 'success' ? 'bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700' : 'bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700'">
         <div class="flex">
           <div class="flex-shrink-0">
-            <svg v-if="statusType === 'success'" class="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+            <svg v-if="statusType === 'success'" class="h-5 w-5 text-green-400 dark:text-green-500" viewBox="0 0 20 20" fill="currentColor">
               <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
             </svg>
-            <svg v-else class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+            <svg v-else class="h-5 w-5 text-red-400 dark:text-red-500" viewBox="0 0 20 20" fill="currentColor">
               <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
             </svg>
           </div>
           <div class="ml-3">
             <p class="text-sm font-medium" 
-               :class="statusType === 'success' ? 'text-green-800' : 'text-red-800'">
+               :class="statusType === 'success' ? 'text-green-800 dark:text-green-300' : 'text-red-800 dark:text-red-300'">
               {{ statusMessage }}
             </p>
           </div>
         </div>
       </div>
     </div>
-  </div>
+  </main>
 </template>
 
 <script setup lang="ts">
