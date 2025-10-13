@@ -1,10 +1,13 @@
 name: Code Quality & Coverage
 
 on:
+  schedule:
+    - cron: "0 20 * * *"
   push:
     branches: [main, dev, stab]
   pull_request:
     branches: [main, dev, stab]
+  workflow_dispatch:
 
 jobs:
   backend-quality:
