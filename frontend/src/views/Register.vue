@@ -54,9 +54,9 @@ const register = async () => {
     const user = userCredential.user
     console.log('User registered:', user)
     router.push('/') 
-  } catch (error: any) {
-    const errorCode = error.code
-    const errorMessage = error.message
+  } catch (error) {
+    const errorCode = (error as { code?: string }).code
+    const errorMessage = (error as { message?: string }).message
     console.error('Error registering user:', errorCode, errorMessage)
     alert(`Błąd rejestracji: ${errorMessage}`)
   }
