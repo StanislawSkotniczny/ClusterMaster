@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, type RouteLocationNormalized, type NavigationGuardNext } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
 import SignIn from '../views/SignIn.vue'
@@ -67,7 +67,12 @@ const router = createRouter({
 
 
 let authInitialized = false
-let pendingNavigations: Array<{ to: any, from: any, next: any }> = []
+interface PendingNavigation {
+  to: RouteLocationNormalized
+  from: RouteLocationNormalized
+  next: NavigationGuardNext
+}
+let pendingNavigations: PendingNavigation[] = []
 
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()

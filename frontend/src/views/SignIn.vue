@@ -52,7 +52,7 @@ async function doLogin() {
   try {
     await authStore.login(email.value, password.value)
     router.push("/")
-  } catch (e) {
+  } catch {
     alert("Błąd logowania")
   }
 }
