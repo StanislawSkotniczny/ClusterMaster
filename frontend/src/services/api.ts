@@ -22,15 +22,18 @@ export interface ClusterInfo {
     node_count?: number
     context?: string
     assigned_ports?: {
-        prometheus: number
-        grafana: number
+        prometheus?: number
+        grafana?: number
     }
     monitoring?: {
-        installed: boolean
+        installed?: boolean
+        enabled?: boolean
     }
     resources?: {
-        node_count: number
-        nodes: Array<{
+        node_count?: number
+        cpu_usage?: number
+        memory_usage?: number
+        nodes?: Array<{
             name: string
             cpu?: string
             memory?: string
@@ -44,7 +47,7 @@ export interface ClusterInfo {
             memory_usage?: string
             memory_percent?: string
         }>
-        summary: string
+        summary?: string
         type?: string
         note?: string
         error?: string
