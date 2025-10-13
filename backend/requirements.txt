@@ -6,3 +6,4 @@ requests==2.31.0
 firebase-admin==6.2.0
 google-cloud-firestore==2.13.1
 pyyaml
+httpx
