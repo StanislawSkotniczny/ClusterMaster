@@ -1,0 +1,30 @@
+backend:
+  - backend/**/*
+
+frontend:
+  - frontend/**/*
+
+documentation:
+  - "**/*.md"
+  - docs/**/*
+
+ci/cd:
+  - .github/**/*
+  - "**/Dockerfile"
+  - docker-compose.yml
+
+configuration:
+  - "**/*.json"
+  - "**/*.yaml"
+  - "**/*.yml"
+  - "**/*.toml"
+
+dependencies:
+  - backend/requirements.txt
+  - frontend/package.json
+  - frontend/package-lock.json
+
+kubernetes:
+  - backend/helm/**/*
+  - "**/*.yaml"
+  - backend/metrics-patch.yaml
