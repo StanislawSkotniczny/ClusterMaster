@@ -1,1 +1,10 @@
-{}
+{
+  "teststas": {
+    "prometheus": 30090,
+    "grafana": 30030
+  },
+  "k3dtest": {
+    "prometheus": 30100,
+    "grafana": 30040
+  }
+}
