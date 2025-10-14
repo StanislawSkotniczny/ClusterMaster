@@ -220,8 +220,12 @@ def parse_node_metrics(metrics_output: str) -> dict:
 def get_basic_node_info(cluster_name: str) -> dict:
     """Pobierz podstawowe informacje o węzłach gdy metryki nie są dostępne"""
     try:
+        # Wykryj provider klastra
+        provider = detect_cluster_provider(cluster_name)
+        context = f"{provider}-{cluster_name}"
+        
         nodes_result = subprocess.run([
-            "kubectl", "get", "nodes", "--context", f"kind-{cluster_name}",
+            "kubectl", "get", "nodes", "--context", context,
             "-o", r"custom-columns=NAME:.metadata.name,STATUS:.status.conditions[-1].type,ROLES:.metadata.labels.node-role\.kubernetes\.io/control-plane",
             "--no-headers"
         ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
@@ -277,9 +281,13 @@ def detect_cluster_provider(cluster_name: str) -> str:
 def get_enhanced_node_info(cluster_name: str) -> dict:
     """Pobierz rozszerzone informacje o węzłach używając Docker stats"""
     try:
+        # Wykryj provider klastra
+        provider = detect_cluster_provider(cluster_name)
+        context = f"{provider}-{cluster_name}"
+        
         # Najpierw pobierz nazwy węzłów
         nodes_result = subprocess.run([
-            "kubectl", "get", "nodes", "--context", f"kind-{cluster_name}",
+            "kubectl", "get", "nodes", "--context", context,
             "-o", "json"
         ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
         
