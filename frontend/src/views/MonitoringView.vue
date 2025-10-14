@@ -591,8 +591,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive } from 'vue'
-import { ApiService, type ClusterInfo } from '@/services/api'
+import { ref, onMounted, reactive, computed } from 'vue'
+import { useClustersStore } from '@/stores/clusters'
+import { ApiService } from '@/services/api'
+
+const clustersStore = useClustersStore()
 
 // Additional Types
 interface PodInfo {
@@ -654,9 +657,9 @@ const getErrorMessage = (e: unknown): string => {
 }
 
 // Reactive data
-const loading = ref(true)
+const loading = computed(() => clustersStore.isLoading)
 const error = ref('')
-const clusters = ref<ClusterInfo[]>([])
+const clusters = computed(() => clustersStore.clusters)
 const monitoringDetails = reactive<Record<string, MonitoringDetail>>({})
 const allPortsData = ref<AllPortsData | null>(null)
 const showAllPorts = ref(false)
@@ -670,13 +673,13 @@ const installingMetrics = reactive<Record<string, boolean>>({})
 
 // Methods
 const refreshData = async () => {
-  loading.value = true
   error.value = ''
   
   try {
-    // Pobierz szczegółowe informacje o klastrach
-    const clustersResponse = await ApiService.listClustersDetailed()
-    clusters.value = clustersResponse.clusters || []
+    // Use store clusters - will refresh automatically
+    if (clustersStore.clusters.length === 0) {
+      await clustersStore.fetchClusters()
+    }
     
     // Pobierz informacje o wszystkich portach
     try {
@@ -688,8 +691,6 @@ const refreshData = async () => {
     
   } catch (e: unknown) {
     error.value = getErrorMessage(e)
-  } finally {
-    loading.value = false
   }
 }
 
@@ -783,8 +784,8 @@ const deleteCluster = async (clusterName: string) => {
   try {
     await ApiService.deleteCluster(clusterName)
     
-    // Usuń klaster z listy
-    clusters.value = clusters.value.filter(c => c.name !== clusterName)
+    // Remove from store
+    clustersStore.removeCluster(clusterName)
     delete monitoringDetails[clusterName]
     
     // Odśwież dane portów

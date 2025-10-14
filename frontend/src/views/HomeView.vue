@@ -93,7 +93,19 @@
           <!-- Klastry lokalne -->
           <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 transition-all">
             <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
-              <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Klastry lokalne</h3>
+              <div class="flex items-center space-x-2">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Klastry lokalne</h3>
+                <svg 
+                  v-if="clustersStore.isRefreshing" 
+                  class="animate-spin h-4 w-4 text-blue-500 dark:text-blue-400" 
+                  xmlns="http://www.w3.org/2000/svg" 
+                  fill="none" 
+                  viewBox="0 0 24 24"
+                >
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </div>
               <button 
                 @click="loadClusters" 
                 class="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium transition-colors"
@@ -238,17 +250,20 @@
 
 <script setup lang="ts">
 import { useAuthStore } from '../stores/auth'
+import { useClustersStore } from '../stores/clusters'
 import { useRouter, useRoute } from 'vue-router'
 import { ref, onMounted, computed } from 'vue'
-import { ApiService, type ClusterInfo } from '@/services/api'
 
 const authStore = useAuthStore()
+const clustersStore = useClustersStore()
 const router = useRouter()
 const route = useRoute()
-const clusterDetails = ref<ClusterInfo[]>([])
-const loading = ref(false)
 const showSuccessNotification = ref(false)
 const successMessage = ref("")
+
+// Use store data
+const clusterDetails = computed(() => clustersStore.clusters)
+const loading = computed(() => clustersStore.isLoading)
 
 // Computed properties for statistics
 const totalNodesCount = computed(() => {
@@ -272,21 +287,19 @@ onMounted(async () => {
     }, 5000)
   }
   
-  loadClusters()
+  // Load clusters if not already loaded (App.vue handles auto-refresh)
+  if (clustersStore.clusters.length === 0) {
+    await clustersStore.fetchClusters()
+  }
 })
 
 const loadClusters = async () => {
-  loading.value = true
   try {
     console.log("Ładowanie klastrów...")
-    const result = await ApiService.listClustersDetailed(false)
-    console.log("Otrzymane szczegóły klastrów:", result)
-    clusterDetails.value = result.clusters || []
+    await clustersStore.fetchClusters()
+    console.log("Otrzymane szczegóły klastrów:", clustersStore.clusters)
   } catch (error) {
     console.error('Błąd ładowania klastrów:', error)
-    clusterDetails.value = []
-  } finally {
-    loading.value = false
   }
 }
 </script>

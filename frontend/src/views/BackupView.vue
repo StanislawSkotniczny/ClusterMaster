@@ -344,11 +344,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { ApiService, type ClusterInfo, type BackupInfo, type BackupDetails } from '@/services/api'
+import { ref, onMounted, computed } from 'vue'
+import { useClustersStore } from '@/stores/clusters'
+import { ApiService, type BackupInfo, type BackupDetails } from '@/services/api'
+
+const clustersStore = useClustersStore()
 
 // Reactive data
-const clusters = ref<ClusterInfo[]>([])
+const clusters = computed(() => clustersStore.clusters)
 const backups = ref<BackupInfo[]>([])
 const backupInfo = ref<Record<string, unknown> | null>(null)
 const selectedCluster = ref('')
@@ -375,21 +378,14 @@ const changingDirectory = ref(false)
 
 // Load data on mount
 onMounted(async () => {
-  await loadClusters()
+  if (clustersStore.clusters.length === 0) {
+    await clustersStore.fetchClusters()
+  }
   await loadBackups()
   await loadBackupInfo()
 })
 
 // Methods
-const loadClusters = async () => {
-  try {
-    const response = await ApiService.listClustersDetailed()
-    clusters.value = response.clusters || []
-  } catch (error) {
-    console.error('Error loading clusters:', error)
-  }
-}
-
 const loadBackups = async () => {
   loadingBackups.value = true
   try {

@@ -302,9 +302,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { ApiService, type ClusterInfo } from '@/services/api'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { ApiService } from '@/services/api'
+import type { ClusterInfo } from '@/services/api'
+import { useClustersStore } from '@/stores/clusters'
+
+const clustersStore = useClustersStore()
 
 // Router
 const route = useRoute()
@@ -348,20 +352,22 @@ const loadClusterDetails = async () => {
     loading.value = true
     error.value = ''
     
-    const clusters = await ApiService.getClusters(false)
-    const cluster = clusters.find((c: ClusterInfo) => c.name === clusterName)
+    // Simply get cluster from store - App.vue handles fetching
+    const cluster = clustersStore.getClusterByName(clusterName)
     
     if (!cluster) {
       error.value = `Klaster "${clusterName}" nie został znaleziony`
       return
     }
     
-    clusterDetails.value = cluster
+    // Assign cluster data directly - no need for toRaw
+    clusterDetails.value = { ...cluster }
     
     // Load additional data
     await loadInstalledApps()
     await loadClusterStats()
   } catch (err) {
+    console.error('Error loading cluster details:', err)
     error.value = (err as Error).message || 'Błąd podczas ładowania szczegółów klastra'
   } finally {
     loading.value = false
@@ -476,7 +482,8 @@ const deleteCluster = async () => {
 }
 
 // Load data on mount
-onMounted(() => {
-  loadClusterDetails()
+onMounted(async () => {
+  console.log('ClusterDetailsView mounted for:', clusterName)
+  await loadClusterDetails()
 })
 </script>

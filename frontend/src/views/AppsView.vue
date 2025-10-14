@@ -215,11 +215,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { ApiService, type ClusterInfo } from '@/services/api'
+import { ref, onMounted, computed } from 'vue'
+import { useClustersStore } from '@/stores/clusters'
+import { ApiService } from '@/services/api'
 import AppCard from '@/components/AppCard.vue'
 
-// Types
+const clustersStore = useClustersStore()
+
 interface App {
   name: string
   displayName: string
@@ -234,11 +236,11 @@ interface App {
 
 // Reactive data
 const selectedCluster = ref('')
-const clusters = ref<ClusterInfo[]>([])
+const clusters = computed(() => clustersStore.clusters)
 const installingApps = ref<string[]>([])
 const statusMessage = ref('')
 const statusType = ref<'success' | 'error'>('success')
-const isLoadingClusters = ref(false)
+const isLoadingClusters = computed(() => clustersStore.isLoading)
 
 // Search functionality
 const searchQuery = ref('')
@@ -299,7 +301,7 @@ const installCustomApp = async (chart: typeof searchResults.value[0]) => {
       values: {}
     })
     
-    showStatus(`${chart.name} został zainstalowany na klastrze ${selectedCluster.value}!`, 'success')
+    showStatus(`${chart.name} rozpoczął instalację na klastrze ${selectedCluster.value}. Instalacja może potrwać kilka minut...`, 'success')
     
     // Remove from search results after successful install
     searchResults.value = searchResults.value.filter(c => c.full_name !== chart.full_name)
@@ -491,18 +493,13 @@ const devopsApps = ref<App[]>([
   }
 ])
 
-// Methods
-const loadClusters = async () => {
-  isLoadingClusters.value = true
-  try {
-    // Szybkie ładowanie bez szczegółów o zasobach (Docker stats)
-    clusters.value = await ApiService.getClusters(false)
-  } catch (error) {
-    console.error('Error loading clusters:', error)
-  } finally {
-    isLoadingClusters.value = false
+// Load data on mount
+onMounted(() => {
+  // Use store clusters - will load if not already loaded
+  if (clustersStore.clusters.length === 0) {
+    clustersStore.fetchClusters()
   }
-}
+})
 
 const installApp = async (app: App) => {
   if (!selectedCluster.value) return
@@ -518,7 +515,7 @@ const installApp = async (app: App) => {
       values: app.values || {}
     })
     
-    showStatus(`${app.displayName} został zainstalowany na klastrze ${selectedCluster.value}!`, 'success')
+    showStatus(`${app.displayName} rozpoczął instalację na klastrze ${selectedCluster.value}. Instalacja może potrwać kilka minut...`, 'success')
     
     // Mark as installed
     app.installed = true
@@ -542,6 +539,9 @@ const showStatus = (message: string, type: 'success' | 'error') => {
 
 // Load data on mount
 onMounted(() => {
-  loadClusters()
+  // Use store clusters - will load if not already loaded
+  if (clustersStore.clusters.length === 0) {
+    clustersStore.fetchClusters()
+  }
 })
 </script>

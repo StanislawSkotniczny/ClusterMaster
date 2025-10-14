@@ -2,10 +2,12 @@
 import { RouterView, useRouter } from 'vue-router'
 import { useDarkMode } from './composables/useDarkMode'
 import { useAuthStore } from './stores/auth'
-import { onMounted } from 'vue'
+import { useClustersStore } from './stores/clusters'
+import { onMounted, onUnmounted, watch } from 'vue'
 
 const { initTheme, watchSystemTheme, isDark, toggleDarkMode } = useDarkMode()
 const authStore = useAuthStore()
+const clustersStore = useClustersStore()
 const router = useRouter()
 
 const logout = async () => {
@@ -16,6 +18,28 @@ const logout = async () => {
 onMounted(() => {
   initTheme()
   watchSystemTheme()
+  
+  // Initialize clusters store when user is authenticated
+  if (authStore.user) {
+    clustersStore.fetchClusters()
+    clustersStore.startAutoRefresh(10000) // Refresh every 10 seconds
+  }
+})
+
+onUnmounted(() => {
+  // Clean up auto-refresh when app unmounts
+  clustersStore.stopAutoRefresh()
+})
+
+// Watch for auth changes - start/stop auto-refresh
+watch(() => authStore.user, (newUser) => {
+  if (newUser) {
+    clustersStore.fetchClusters()
+    clustersStore.startAutoRefresh(10000)
+  } else {
+    clustersStore.stopAutoRefresh()
+    clustersStore.$reset()
+  }
 })
 </script>
 

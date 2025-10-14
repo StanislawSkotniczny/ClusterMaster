@@ -12,6 +12,48 @@ class AppService:
         self.temp_dir.mkdir(exist_ok=True)
         self._ensure_helm_repos()
     
+    def _get_cluster_context(self, cluster_name: str) -> str:
+        """Get the correct kube-context for the cluster (kind- or k3d-)"""
+        try:
+            # Check if it's a k3d cluster
+            result = subprocess.run(
+                ["k3d", "cluster", "list", "--output", "json"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                k3d_clusters = json.loads(result.stdout)
+                for cluster in k3d_clusters:
+                    if cluster.get("name") == cluster_name:
+                        return f"k3d-{cluster_name}"
+            
+            # Check if it's a kind cluster
+            result = subprocess.run(
+                ["kind", "get", "clusters"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode == 0:
+                clusters = result.stdout.strip().split('\n')
+                if cluster_name in clusters:
+                    return f"kind-{cluster_name}"
+            
+            # Default to k3d if cluster name suggests it
+            if "k3d" in cluster_name.lower():
+                return f"k3d-{cluster_name}"
+            
+            # Default to kind for backward compatibility
+            return f"kind-{cluster_name}"
+            
+        except Exception as e:
+            print(f"Warning: Could not determine cluster type: {e}")
+            # Default to kind for backward compatibility
+            return f"kind-{cluster_name}"
+    
     def _ensure_helm_repos(self):
         """Ensure common Helm repositories are added"""
         try:
@@ -151,10 +193,11 @@ class AppService:
                     "error": f"Cluster {cluster_name} does not exist"
                 }
             
+            context = self._get_cluster_context(cluster_name)
 
             cmd = [
                 "helm", "list", "--all-namespaces",
-                "--kube-context", f"kind-{cluster_name}",
+                "--kube-context", context,
                 "--output", "json"
             ]
             
@@ -200,9 +243,11 @@ class AppService:
             
             print(f"Looking for release: {release_name}")
             
+            context = self._get_cluster_context(cluster_name)
+            
             list_cmd = [
                 "helm", "list", "--all-namespaces",
-                "--kube-context", f"kind-{cluster_name}",
+                "--kube-context", context,
                 "--output", "json"
             ]
             print(f"List command: {' '.join(list_cmd)}")
@@ -236,7 +281,7 @@ class AppService:
                 cmd = [
                     "helm", "uninstall", release_name,
                     "--namespace", namespace,
-                    "--kube-context", f"kind-{cluster_name}",
+                    "--kube-context", context,
                     "--wait"
                 ]
                 print(f"Uninstall command: {' '.join(cmd)}")
@@ -270,25 +315,48 @@ class AppService:
             }
     
     def _cluster_exists(self, cluster_name: str) -> bool:
-        """Check if cluster exists"""
+        """Check if cluster exists (supports both kind and k3d)"""
         try:
-            result = subprocess.run([
-                "kind", "get", "clusters"
-            ], capture_output=True, text=True, timeout=10)
+            # Check k3d clusters
+            result = subprocess.run(
+                ["k3d", "cluster", "list", "--output", "json"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                k3d_clusters = json.loads(result.stdout)
+                for cluster in k3d_clusters:
+                    if cluster.get("name") == cluster_name:
+                        return True
+            
+            # Check kind clusters
+            result = subprocess.run(
+                ["kind", "get", "clusters"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
             
             if result.returncode == 0:
                 clusters = result.stdout.strip().split('\n')
-                return cluster_name in clusters
+                if cluster_name in clusters:
+                    return True
+            
             return False
-        except:
+        except Exception as e:
+            print(f"Warning: Could not check cluster existence: {e}")
             return False
     
     def _create_namespace(self, cluster_name: str, namespace: str):
         """Create namespace if it doesn't exist"""
         try:
+            context = self._get_cluster_context(cluster_name)
+            
             cmd = [
                 "kubectl", "create", "namespace", namespace,
-                "--context", f"kind-{cluster_name}",
+                "--context", context,
                 "--dry-run=client", "-o", "yaml"
             ]
             
@@ -296,7 +364,7 @@ class AppService:
             
             if dry_run.returncode == 0:
                 apply_cmd = [
-                    "kubectl", "apply", "--context", f"kind-{cluster_name}",
+                    "kubectl", "apply", "--context", context,
                     "-f", "-"
                 ]
                 subprocess.run(apply_cmd, input=dry_run.stdout, capture_output=True, text=True, timeout=10)
@@ -353,11 +421,13 @@ class AppService:
                      namespace: str, values_file: Optional[Path] = None) -> Dict[str, Any]:
         """Install Helm chart"""
         try:
+            context = self._get_cluster_context(cluster_name)
+            
             cmd = [
                 "helm", "install", release_name, chart,
                 "--namespace", namespace,
                 "--create-namespace",
-                "--kube-context", f"kind-{cluster_name}",
+                "--kube-context", context,
                 "--wait",
                 "--timeout", "10m"
             ]
