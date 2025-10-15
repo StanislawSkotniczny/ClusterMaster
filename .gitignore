@@ -63,3 +63,4 @@ node_modules/
 # OS
 .DS_Store
 Thumbs.db
+backend/__pycache__/simple_main.cpython-313.pyc

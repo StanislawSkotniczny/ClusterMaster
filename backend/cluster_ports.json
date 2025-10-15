@@ -1,18 +1,14 @@
 {
-  "teststas": {
-    "prometheus": 30090,
-    "grafana": 30030
-  },
   "k3dtest": {
     "prometheus": 30100,
     "grafana": 30040
   },
-  "test122k3d": {
+  "test2": {
+    "prometheus": 30090,
+    "grafana": 30030
+  },
+  "test122": {
     "prometheus": 30110,
     "grafana": 30050
-  },
-  "testprzywrocbackup": {
-    "prometheus": 30120,
-    "grafana": 30060
   }
 }

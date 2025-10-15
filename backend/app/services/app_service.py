@@ -236,7 +236,10 @@ class AppService:
                     "error": f"Cluster {cluster_name} does not exist"
                 }
             
-            if f"-{cluster_name}" in app_name:
+            # Special handling for monitoring apps - they don't have cluster suffix
+            if app_name.lower() in ['prometheus', 'grafana']:
+                release_name = app_name
+            elif f"-{cluster_name}" in app_name:
                 release_name = app_name  
             else:
                 release_name = f"{app_name}-{cluster_name}"  

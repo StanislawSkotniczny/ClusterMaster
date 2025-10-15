@@ -70,7 +70,19 @@ class HelmService:
     def install_monitoring_stack(self, cluster_name: str, namespace: str = "monitoring") -> Dict[str, Any]:
         """Zainstaluj monitoring + automatyczny port-forward"""
         try:
-            context = f"kind-{cluster_name}"
+            # Detect cluster provider (k3d or kind)
+            from .k3d_service import k3d_service
+            provider = "kind"  # default
+            
+            # Check if it's a k3d cluster
+            try:
+                k3d_clusters = k3d_service.list_clusters()
+                if cluster_name in k3d_clusters:
+                    provider = "k3d"
+            except:
+                pass
+            
+            context = f"{provider}-{cluster_name}"
             
             # Przypisz porty dla klastra
             cluster_ports = port_manager.assign_ports_for_cluster(cluster_name)

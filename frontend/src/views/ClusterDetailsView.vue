@@ -225,7 +225,7 @@
           <div class="bg-white dark:bg-gray-800 shadow-sm rounded-xl border border-gray-100 dark:border-gray-700 p-6">
             <h2 class="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Monitoring</h2>
             <div class="space-y-3">
-              <div v-if="clusterDetails.monitoring?.enabled">
+              <div v-if="clusterDetails.monitoring?.installed">
                 <div v-if="clusterDetails.assigned_ports?.prometheus" class="flex items-center justify-between p-3 border border-gray-100 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900/20">
                   <div class="flex items-center">
                     <div class="bg-blue-100 dark:bg-blue-900 p-2 rounded-lg mr-3">
@@ -285,7 +285,7 @@
                 Utwórz backup
               </router-link>
               <router-link 
-                :to="`/monitoring/${clusterName}`"
+                :to="`/monitoring#${clusterName}`"
                 class="w-full inline-flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
               >
                 <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -352,7 +352,12 @@ const loadClusterDetails = async () => {
     loading.value = true
     error.value = ''
     
-    // Simply get cluster from store - App.vue handles fetching
+    // Wait for store to load if empty
+    if (clustersStore.clusters.length === 0) {
+      await clustersStore.fetchClusters()
+    }
+    
+    // Get cluster from store
     const cluster = clustersStore.getClusterByName(clusterName)
     
     if (!cluster) {

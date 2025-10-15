@@ -122,6 +122,7 @@
         <div 
           v-for="cluster in clusters" 
           :key="cluster.name"
+          :id="cluster.name"
           class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden hover:shadow-md transition-all"
         >
           <!-- Cluster header -->
@@ -850,6 +851,22 @@ const getPodStatusColor = (status: string, ready: boolean) => {
 // Initialize
 onMounted(async () => {
   await refreshData()
+  
+  // Scroll to cluster if hash is present
+  if (window.location.hash) {
+    const clusterName = window.location.hash.substring(1) // Remove #
+    setTimeout(() => {
+      const element = document.getElementById(clusterName)
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        // Optional: highlight the card briefly
+        element.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.5)'
+        setTimeout(() => {
+          element.style.boxShadow = ''
+        }, 2000)
+      }
+    }, 500) // Wait for data to load
+  }
 })
 </script>
 

@@ -386,22 +386,22 @@ async def get_cluster_details_async(cluster_name: str, include_resources: bool =
         # Sprawdź monitoring
         async def check_monitoring():
             try:
-                # Sprawdź oba pody w jednym wywołaniu
+                # Sprawdź Helm releases zamiast podów - bardziej niezawodne
                 result = await loop.run_in_executor(
                     executor,
                     lambda: subprocess.run([
-                        "kubectl", "get", "pods", "--namespace", "monitoring",
-                        "--context", f"{provider}-{cluster_name}",
-                        "-l", "app.kubernetes.io/name in (prometheus,grafana)",
-                        "--no-headers"
-                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=1)
+                        "helm", "list", "--namespace", "monitoring",
+                        "--kube-context", f"{provider}-{cluster_name}",
+                        "--output", "json"
+                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
                 )
                 
-                # Sprawdź czy są oba pody (Prometheus i Grafana)
-                if result.returncode == 0:
-                    pods = result.stdout.strip().split('\n')
-                    has_prometheus = any('prometheus' in pod.lower() for pod in pods if pod.strip())
-                    has_grafana = any('grafana' in pod.lower() for pod in pods if pod.strip())
+                # Sprawdź czy są oba releases (prometheus i grafana)
+                if result.returncode == 0 and result.stdout.strip():
+                    import json
+                    releases = json.loads(result.stdout)
+                    has_prometheus = any('prometheus' in release.get('name', '').lower() for release in releases)
+                    has_grafana = any('grafana' in release.get('name', '').lower() for release in releases)
                     cluster_info["monitoring"] = {"installed": bool(has_prometheus and has_grafana)}
                 else:
                     cluster_info["monitoring"] = {"installed": False}
@@ -1173,6 +1173,44 @@ async def install_monitoring_endpoint(cluster_name: str):
         return {
             "success": False,
             "error": f"Błąd instalacji monitoringu: {str(e)}"
+        }
+
+@app.delete("/api/v1/monitoring/uninstall/{cluster_name}")
+async def uninstall_monitoring_endpoint(cluster_name: str):
+    """Usuń monitoring z klastra (Prometheus i Grafana)"""
+    try:
+        # Usuń prometheus
+        prometheus_result = app_service.uninstall_app(cluster_name, "prometheus")
+        
+        # Usuń grafana
+        grafana_result = app_service.uninstall_app(cluster_name, "grafana")
+        
+        # Sprawdź czy oba się udały
+        if prometheus_result.get("success") and grafana_result.get("success"):
+            # Usuń przypisane porty
+            port_manager.release_ports(cluster_name)
+            
+            return {
+                "success": True,
+                "message": "Monitoring został usunięty",
+                "prometheus": prometheus_result,
+                "grafana": grafana_result
+            }
+        else:
+            errors = []
+            if not prometheus_result.get("success"):
+                errors.append(f"Prometheus: {prometheus_result.get('error', 'Unknown error')}")
+            if not grafana_result.get("success"):
+                errors.append(f"Grafana: {grafana_result.get('error', 'Unknown error')}")
+            
+            return {
+                "success": False,
+                "error": "; ".join(errors)
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Błąd usuwania monitoringu: {str(e)}"
         }
 
 @app.get("/api/v1/monitoring/status/{cluster_name}")
