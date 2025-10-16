@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import subprocess
 import os
@@ -1159,6 +1159,31 @@ async def create_cluster_with_monitoring(cluster_data: dict):
             "monitoring_error": f"Klaster utworzony, ale monitoring nie został zainstalowany: {str(e)}"
         }
 
+# Helper function to check if port-forward is active
+def check_port_forward_active(cluster_name: str, port: int) -> bool:
+    """Check if kubectl port-forward is running for the given cluster and port"""
+    try:
+        import psutil
+        
+        # Get all running processes
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                cmdline = proc.info.get('cmdline')
+                if cmdline and 'kubectl' in ' '.join(cmdline):
+                    # Check if it's a port-forward command for this cluster
+                    cmdline_str = ' '.join(cmdline)
+                    if 'port-forward' in cmdline_str and cluster_name in cmdline_str and str(port) in cmdline_str:
+                        return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        
+        return False
+    except ImportError:
+        # psutil not installed, return False
+        return False
+    except Exception:
+        return False
+
 # Zastąp istniejące endpointy monitoringu:
 @app.post("/api/v1/monitoring/install/{cluster_name}")
 async def install_monitoring_endpoint(cluster_name: str):
@@ -1215,11 +1240,14 @@ async def uninstall_monitoring_endpoint(cluster_name: str):
 
 @app.get("/api/v1/monitoring/status/{cluster_name}")
 async def get_monitoring_status_endpoint(cluster_name: str):
-    """Sprawdź status monitoringu"""
+    """Sprawdź szczegółowy status monitoringu"""
     try:
-        context = f"kind-{cluster_name}"
+        # Detect provider
+        k3d_clusters = k3d_service.list_clusters()
+        provider = "k3d" if cluster_name in k3d_clusters else "kind"
+        context = f"{provider}-{cluster_name}"
         
-        # Sprawdź pody monitoringu
+        # Get pods in monitoring namespace
         kubectl_result = subprocess.run([
             "kubectl", "get", "pods", 
             "--namespace", "monitoring",
@@ -1237,24 +1265,80 @@ async def get_monitoring_status_endpoint(cluster_name: str):
         import json
         pods_data = json.loads(kubectl_result.stdout)
         
-        prometheus_pods = len([p for p in pods_data.get("items", []) if "prometheus" in p["metadata"]["name"]])
-        grafana_pods = len([p for p in pods_data.get("items", []) if "grafana" in p["metadata"]["name"]])
-        running_pods = len([p for p in pods_data.get("items", []) if p["status"]["phase"] == "Running"])
-        total_pods = len(pods_data.get("items", []))
+        # Organize pods by type
+        prometheus_pods_list = []
+        grafana_pods_list = []
+        
+        for pod in pods_data.get("items", []):
+            pod_name = pod["metadata"]["name"]
+            pod_status = pod["status"]["phase"]
+            
+            # Check if pod is ready
+            ready = False
+            if "containerStatuses" in pod["status"]:
+                ready = all(c.get("ready", False) for c in pod["status"]["containerStatuses"])
+            
+            pod_info = {
+                "name": pod_name,
+                "status": pod_status,
+                "ready": ready
+            }
+            
+            if "prometheus" in pod_name.lower():
+                prometheus_pods_list.append(pod_info)
+            elif "grafana" in pod_name.lower():
+                grafana_pods_list.append(pod_info)
+        
+        # Count running pods
+        prometheus_running = sum(1 for p in prometheus_pods_list if p["ready"])
+        grafana_running = sum(1 for p in grafana_pods_list if p["ready"])
+        
+        # Get services
+        services_result = subprocess.run([
+            "kubectl", "get", "svc",
+            "--namespace", "monitoring",
+            "--context", context,
+            "-o", "json"
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+        
+        services = {}
+        if services_result.returncode == 0:
+            services_data = json.loads(services_result.stdout)
+            for svc in services_data.get("items", []):
+                svc_name = svc["metadata"]["name"]
+                svc_type = svc["spec"].get("type", "ClusterIP")
+                ports = []
+                for p in svc["spec"].get("ports", []):
+                    port_info = {
+                        "port": p.get("port"),
+                        "targetPort": p.get("targetPort"),
+                        "protocol": p.get("protocol", "TCP")
+                    }
+                    if "nodePort" in p:
+                        port_info["nodePort"] = p.get("nodePort")
+                    ports.append(port_info)
+                
+                services[svc_name] = {
+                    "type": svc_type,
+                    "ports": ports
+                }
         
         return {
             "cluster_name": cluster_name,
             "monitoring_installed": True,
             "namespace": "monitoring",
-            "total_pods": total_pods,
-            "running_pods": running_pods,
-            "prometheus_pods": prometheus_pods,
-            "grafana_pods": grafana_pods,
-            "status": "healthy" if total_pods > 0 and running_pods == total_pods else "starting",
-            "access_info": {
-                "prometheus": f"kubectl port-forward svc/prometheus-server 9090:80 -n monitoring --context {context}",
-                "grafana": f"kubectl port-forward svc/grafana 3000:80 -n monitoring --context {context} (admin/admin123)"
-            }
+            "prometheus": {
+                "pod_count": len(prometheus_pods_list),
+                "running": prometheus_running,
+                "pods": prometheus_pods_list
+            },
+            "grafana": {
+                "pod_count": len(grafana_pods_list),
+                "running": grafana_running,
+                "pods": grafana_pods_list
+            },
+            "services": services,
+            "status": "healthy" if (prometheus_running + grafana_running) == (len(prometheus_pods_list) + len(grafana_pods_list)) and (len(prometheus_pods_list) + len(grafana_pods_list)) > 0 else "starting"
         }
         
     except Exception as e:
@@ -1265,18 +1349,43 @@ async def get_monitoring_status_endpoint(cluster_name: str):
 
 @app.get("/api/v1/monitoring/ports")
 async def get_all_cluster_ports():
-    """Zwróć wszystkie przypisane porty dla klastrów"""
+    """Zwróć wszystkie przypisane porty dla klastrów w formacie dla UI"""
     try:
         all_ports = port_manager.get_all_ports()
+        
+        # Transform to frontend format
+        clusters_data = {}
+        for cluster_name, ports in all_ports.items():
+            prometheus_port = ports.get("prometheus")
+            grafana_port = ports.get("grafana")
+            
+            # Check if port-forward is active for both services
+            prometheus_active = check_port_forward_active(cluster_name, prometheus_port) if prometheus_port else False
+            grafana_active = check_port_forward_active(cluster_name, grafana_port) if grafana_port else False
+            port_forward_active = prometheus_active and grafana_active
+            
+            clusters_data[cluster_name] = {
+                "ports": {
+                    "prometheus": prometheus_port,
+                    "grafana": grafana_port
+                },
+                "urls": {
+                    "prometheus_url": f"http://localhost:{prometheus_port}",
+                    "grafana_url": f"http://localhost:{grafana_port}"
+                },
+                "port_forward_active": port_forward_active,
+                "port_forward_details": {
+                    "prometheus_active": prometheus_active,
+                    "grafana_active": grafana_active
+                }
+            }
+        
         return {
-            "success": True,
-            "ports": all_ports
+            "total_clusters": len(clusters_data),
+            "clusters": clusters_data
         }
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Błąd pobierania portów: {str(e)}"
-        }
+        raise HTTPException(status_code=500, detail=f"Błąd pobierania portów: {str(e)}")
 
 @app.get("/api/v1/monitoring/ports/{cluster_name}")
 async def get_cluster_ports_endpoint(cluster_name: str):
@@ -1303,6 +1412,106 @@ async def get_cluster_ports_endpoint(cluster_name: str):
             "success": False,
             "error": f"Błąd pobierania portów: {str(e)}"
         }
+
+@app.post("/api/v1/monitoring/port-forward/start/{cluster_name}")
+async def start_port_forward(cluster_name: str):
+    """Start kubectl port-forward for monitoring services"""
+    try:
+        # Get assigned ports
+        ports = port_manager.get_cluster_ports(cluster_name)
+        if not ports:
+            raise HTTPException(status_code=404, detail=f"Brak portów dla klastra {cluster_name}")
+        
+        # Detect provider
+        k3d_clusters = k3d_service.list_clusters()
+        provider = "k3d" if cluster_name in k3d_clusters else "kind"
+        context = f"{provider}-{cluster_name}"
+        
+        prometheus_port = ports.get("prometheus")
+        grafana_port = ports.get("grafana")
+        
+        # Start Prometheus port-forward in background
+        prometheus_process = subprocess.Popen([
+            "kubectl", "port-forward",
+            "-n", "monitoring",
+            "svc/prometheus-server",
+            f"{prometheus_port}:80",
+            "--context", context
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        # Start Grafana port-forward in background
+        grafana_process = subprocess.Popen([
+            "kubectl", "port-forward",
+            "-n", "monitoring",
+            "svc/grafana",
+            f"{grafana_port}:80",
+            "--context", context
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        # Wait a moment to check if they started successfully
+        await asyncio.sleep(1)
+        
+        # Check if processes are still running
+        prometheus_running = prometheus_process.poll() is None
+        grafana_running = grafana_process.poll() is None
+        
+        if not prometheus_running or not grafana_running:
+            # Kill any that did start
+            if prometheus_running:
+                prometheus_process.kill()
+            if grafana_running:
+                grafana_process.kill()
+            
+            return {
+                "success": False,
+                "error": "Port-forward nie uruchomił się poprawnie"
+            }
+        
+        return {
+            "success": True,
+            "message": "Port-forward uruchomiony",
+            "urls": {
+                "prometheus": f"http://localhost:{prometheus_port}",
+                "grafana": f"http://localhost:{grafana_port}"
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Błąd uruchamiania port-forward: {str(e)}")
+
+@app.post("/api/v1/monitoring/port-forward/stop/{cluster_name}")
+async def stop_port_forward(cluster_name: str):
+    """Stop kubectl port-forward for monitoring services"""
+    try:
+        import psutil
+        
+        # Get assigned ports
+        ports = port_manager.get_cluster_ports(cluster_name)
+        if not ports:
+            raise HTTPException(status_code=404, detail=f"Brak portów dla klastra {cluster_name}")
+        
+        killed_count = 0
+        
+        # Find and kill port-forward processes for this cluster
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                cmdline = proc.info.get('cmdline')
+                if cmdline and 'kubectl' in ' '.join(cmdline):
+                    cmdline_str = ' '.join(cmdline)
+                    if 'port-forward' in cmdline_str and cluster_name in cmdline_str:
+                        proc.kill()
+                        killed_count += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        
+        return {
+            "success": True,
+            "message": f"Zatrzymano {killed_count} procesów port-forward",
+            "killed_processes": killed_count
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Błąd zatrzymywania port-forward: {str(e)}")
 
 @app.post("/api/v1/monitoring/install-metrics-server/{cluster_name}")
 async def install_metrics_server(cluster_name: str):

@@ -186,6 +186,18 @@ export class ApiService {
         })
     }
 
+    static async startPortForward(clusterName: string) {
+        return this.request(`/monitoring/port-forward/start/${clusterName}`, {
+            method: 'POST',
+        })
+    }
+
+    static async stopPortForward(clusterName: string) {
+        return this.request(`/monitoring/port-forward/stop/${clusterName}`, {
+            method: 'POST',
+        })
+    }
+
     // Backup endpoints
     static async getBackupInfo() {
         return this.request('/backup/info')

@@ -414,6 +414,34 @@
                     {{ loadingStatus[cluster.name] ? 'Sprawdzanie...' : 'Status monitoringu' }}
                   </button>
                   
+                  <!-- Port-forward toggle button -->
+                  <button 
+                    v-if="cluster.monitoring?.installed && allPortsData?.clusters[cluster.name]"
+                    @click="togglePortForward(cluster.name, allPortsData.clusters[cluster.name].port_forward_active)"
+                    :disabled="portForwardLoading[cluster.name]"
+                    :class="allPortsData.clusters[cluster.name].port_forward_active 
+                      ? 'border-red-300 dark:border-red-700 text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50'
+                      : 'border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 hover:bg-green-100 dark:hover:bg-green-900/50'"
+                    class="w-full inline-flex items-center justify-center px-3 py-2 border shadow-sm text-xs font-medium rounded-lg disabled:opacity-50 transition-colors"
+                  >
+                    <svg v-if="portForwardLoading[cluster.name]" class="animate-spin -ml-1 mr-1.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <svg v-else-if="allPortsData.clusters[cluster.name].port_forward_active" class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                    <svg v-else class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                    </svg>
+                    {{ portForwardLoading[cluster.name] 
+                      ? 'Ładowanie...' 
+                      : allPortsData.clusters[cluster.name].port_forward_active 
+                        ? 'Zatrzymaj port-forward' 
+                        : 'Uruchom port-forward' 
+                    }}
+                  </button>
+                  
                   <button 
                     v-if="cluster.monitoring?.installed"
                     @click="uninstallMonitoring(cluster.name)"
@@ -424,17 +452,6 @@
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
                     </svg>
                     {{ uninstallingMonitoring[cluster.name] ? 'Usuwanie...' : 'Usuń monitoring' }}
-                  </button>
-                  
-                  <button 
-                    @click="deleteCluster(cluster.name)"
-                    :disabled="deletingCluster[cluster.name]"
-                    class="w-full inline-flex items-center justify-center px-3 py-2 border border-transparent shadow-sm text-xs font-medium rounded-lg text-white bg-red-600 dark:bg-red-700 hover:bg-red-700 dark:hover:bg-red-600 disabled:opacity-50 transition-colors"
-                  >
-                    <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-                    </svg>
-                    {{ deletingCluster[cluster.name] ? 'Usuwanie...' : 'Usuń klaster' }}
                   </button>
                 </div>
               </div>
@@ -669,8 +686,8 @@ const showAllPorts = ref(false)
 const loadingStatus = reactive<Record<string, boolean>>({})
 const installingMonitoring = reactive<Record<string, boolean>>({})
 const uninstallingMonitoring = reactive<Record<string, boolean>>({})
-const deletingCluster = reactive<Record<string, boolean>>({})
 const installingMetrics = reactive<Record<string, boolean>>({})
+const portForwardLoading = reactive<Record<string, boolean>>({})
 
 // Methods
 const refreshData = async () => {
@@ -775,32 +792,40 @@ const uninstallMonitoring = async (clusterName: string) => {
   }
 }
 
-const deleteCluster = async (clusterName: string) => {
-  if (!confirm(`Czy na pewno chcesz usunąć cały klaster ${clusterName}? Ta operacja jest nieodwracalna!`)) {
-    return
-  }
-  
-  deletingCluster[clusterName] = true
-  
-  try {
-    await ApiService.deleteCluster(clusterName)
-    
-    // Remove from store
-    clustersStore.removeCluster(clusterName)
-    delete monitoringDetails[clusterName]
-    
-    // Odśwież dane portów
-    await refreshData()
-    
-  } catch (e: unknown) {
-    error.value = `Błąd usuwania klastra ${clusterName}: ${getErrorMessage(e)}`
-  } finally {
-    deletingCluster[clusterName] = false
-  }
-}
-
 const openMonitoringUrls = async (clusterName: string) => {
   try {
+    // Sprawdź czy port-forward jest aktywny
+    const portsData = allPortsData.value?.clusters[clusterName]
+    
+    if (portsData && !portsData.port_forward_active) {
+      // Port-forward nie jest aktywny - zapytaj czy uruchomić
+      if (confirm(`Port-forward nie jest uruchomiony!\n\nCzy chcesz automatycznie uruchomić port-forward i otworzyć monitoring?`)) {
+        // Uruchom port-forward
+        portForwardLoading[clusterName] = true
+        try {
+          const pfResponse = await ApiService.startPortForward(clusterName)
+          if (!pfResponse.success) {
+            error.value = `Błąd uruchamiania port-forward: ${pfResponse.error}`
+            return
+          }
+          
+          // Odśwież dane portów
+          const refreshedPorts = await ApiService.getAllClusterPorts()
+          allPortsData.value = refreshedPorts
+          
+          // Poczekaj chwilę aż port-forward się ustabilizuje
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          
+        } finally {
+          portForwardLoading[clusterName] = false
+        }
+      } else {
+        // Użytkownik nie chce uruchamiać port-forward
+        return
+      }
+    }
+    
+    // Teraz otwórz URL-e
     const response = await ApiService.getClusterPorts(clusterName)
     const urls = response.urls
     
@@ -814,6 +839,48 @@ const openMonitoringUrls = async (clusterName: string) => {
     }
   } catch (e: unknown) {
     error.value = `Błąd otwierania monitoringu ${clusterName}: ${getErrorMessage(e)}`
+  }
+}
+
+const togglePortForward = async (clusterName: string, isActive: boolean) => {
+  portForwardLoading[clusterName] = true
+  
+  try {
+    if (isActive) {
+      // Stop port-forward
+      const response = await ApiService.stopPortForward(clusterName)
+      if (response.success) {
+        // Refresh ports data to update status
+        const portsResponse = await ApiService.getAllClusterPorts()
+        allPortsData.value = portsResponse
+      } else {
+        error.value = `Błąd zatrzymywania port-forward: ${response.error}`
+      }
+    } else {
+      // Start port-forward
+      const response = await ApiService.startPortForward(clusterName)
+      if (response.success) {
+        // Refresh ports data to update status
+        const portsResponse = await ApiService.getAllClusterPorts()
+        allPortsData.value = portsResponse
+        
+        // Optionally open URLs
+        if (confirm(`Port-forward uruchomiony!\n\nPrometheus: ${response.urls.prometheus}\nGrafana: ${response.urls.grafana}\n\nCzy chcesz otworzyć Prometheus i Grafana w przeglądarce?`)) {
+          console.log('Opening Prometheus:', response.urls.prometheus)
+          window.open(response.urls.prometheus, '_blank')
+          setTimeout(() => {
+            console.log('Opening Grafana:', response.urls.grafana)
+            window.open(response.urls.grafana, '_blank')
+          }, 500)
+        }
+      } else {
+        error.value = `Błąd uruchamiania port-forward: ${response.error}`
+      }
+    }
+  } catch (e: unknown) {
+    error.value = `Błąd zarządzania port-forward ${clusterName}: ${getErrorMessage(e)}`
+  } finally {
+    portForwardLoading[clusterName] = false
   }
 }
 
