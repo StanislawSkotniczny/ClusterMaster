@@ -83,6 +83,16 @@ export interface BackupDetails {
     }
 }
 
+export interface ActivityLog {
+    id: string
+    timestamp: string
+    operation_type: string
+    cluster_name: string
+    details: string
+    status: 'success' | 'error' | 'in-progress'
+    metadata?: Record<string, unknown>
+}
+
 export class ApiService {
     private static async request(endpoint: string, options: RequestInit = {}) {
         const url = `${API_BASE_URL}${endpoint}`
@@ -329,5 +339,14 @@ export class ApiService {
             method: 'POST',
             body: JSON.stringify(config)
         })
+    }
+
+    // Activity Log
+    static async getActivityLog(limit: number = 20): Promise<{ success: boolean; logs: ActivityLog[]; error?: string }> {
+        return this.request(`/activity-log?limit=${limit}`)
+    }
+
+    static async getClusterActivityLog(clusterName: string, limit: number = 10): Promise<{ success: boolean; logs: ActivityLog[]; error?: string }> {
+        return this.request(`/activity-log/${clusterName}?limit=${limit}`)
     }
 }

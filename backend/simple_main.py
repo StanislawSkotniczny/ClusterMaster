@@ -11,6 +11,7 @@ from app.services.port_manager import port_manager
 from app.services.backup_service import BackupService
 from app.services.app_service import AppService
 from app.services.k3d_service import k3d_service
+from app.services.activity_log import activity_log
 import argparse
 import sys
 import asyncio
@@ -441,6 +442,33 @@ async def get_cluster_details_async(cluster_name: str, include_resources: bool =
 async def health():
     return {"status": "healthy", "service": "ClusterMaster API"}
 
+@app.get("/api/v1/activity-log")
+async def get_activity_log(limit: int = 20):
+    """Get recent activity logs"""
+    try:
+        logs = activity_log.get_recent_logs(limit=limit)
+        return {
+            "success": True,
+            "logs": logs,
+            "total": len(logs)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching logs: {str(e)}")
+
+@app.get("/api/v1/activity-log/{cluster_name}")
+async def get_cluster_activity_log(cluster_name: str, limit: int = 10):
+    """Get activity logs for specific cluster"""
+    try:
+        logs = activity_log.get_logs_by_cluster(cluster_name, limit=limit)
+        return {
+            "success": True,
+            "cluster_name": cluster_name,
+            "logs": logs,
+            "total": len(logs)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching logs: {str(e)}")
+
 @app.post("/api/v1/cache/clear")
 async def clear_cache():
     """Wyczyść cache klastrów (użyj po usunięciu/dodaniu klastra)"""
@@ -648,6 +676,15 @@ async def create_cluster(cluster_data: dict):
             # Wyczyść cache
             _cluster_cache.clear()
             
+            # Log operation
+            activity_log.log_operation(
+                operation_type="cluster_create",
+                cluster_name=cluster_name,
+                details=f"Utworzono klaster k3d z {node_count} węzłami",
+                status="success",
+                metadata={"provider": "k3d", "node_count": node_count, "agents": agents, "servers": servers}
+            )
+            
             # Instalacja monitoringu jeśli zaznaczone
             if install_monitoring:
                 print(f"Installing monitoring for k3d cluster {cluster_name}...")
@@ -730,6 +767,15 @@ async def create_cluster(cluster_data: dict):
         # Wyczyść cache
         _cluster_cache.clear()
         
+        # Log operation
+        activity_log.log_operation(
+            operation_type="cluster_create",
+            cluster_name=cluster_name,
+            details=f"Utworzono klaster Kind z {node_count} węzłami",
+            status="success",
+            metadata={"provider": "kind", "node_count": node_count}
+        )
+        
         # DODAJ INSTALACJĘ MONITORINGU JEŚLI ZAZNACZONE
         if install_monitoring:
             print(f"Installing monitoring for cluster {cluster_name}...")
@@ -784,11 +830,29 @@ async def delete_cluster(cluster_name: str):
         try:
             success = k3d_service.delete_cluster(cluster_name)
             if not success:
+                # Log error
+                activity_log.log_operation(
+                    operation_type="cluster_delete",
+                    cluster_name=cluster_name,
+                    details="Nie udało się usunąć klastra k3d",
+                    status="error",
+                    metadata={"provider": "k3d"}
+                )
+                
                 return {
                     "error": f"Nie udało się usunąć klastra k3d: {cluster_name}",
                     "provider": "k3d"
                 }
         except Exception as e:
+            # Log exception
+            activity_log.log_operation(
+                operation_type="cluster_delete",
+                cluster_name=cluster_name,
+                details="Wyjątek podczas usuwania klastra k3d",
+                status="error",
+                metadata={"provider": "k3d", "error": str(e)}
+            )
+            
             return {
                 "error": f"Błąd podczas usuwania klastra k3d: {str(e)}",
                 "provider": "k3d"
@@ -797,6 +861,15 @@ async def delete_cluster(cluster_name: str):
         result = run_kind_command(["delete", "cluster", "--name", cluster_name])
         
         if result["returncode"] != 0:
+            # Log error
+            activity_log.log_operation(
+                operation_type="cluster_delete",
+                cluster_name=cluster_name,
+                details="Nie udało się usunąć klastra Kind",
+                status="error",
+                metadata={"provider": "kind", "error": result['stderr']}
+            )
+            
             return {
                 "error": f"Nie udało się usunąć klastra Kind: {result['stderr']}",
                 "debug": result,
@@ -805,6 +878,15 @@ async def delete_cluster(cluster_name: str):
     
     # Wyczyść cache
     _cluster_cache.clear()
+    
+    # Log successful deletion
+    activity_log.log_operation(
+        operation_type="cluster_delete",
+        cluster_name=cluster_name,
+        details=f"Usunięto klaster {provider.upper()}",
+        status="success",
+        metadata={"provider": provider}
+    )
     
     return {
         "message": f"Klaster {cluster_name} został usunięty",
@@ -1188,13 +1270,67 @@ def check_port_forward_active(cluster_name: str, port: int) -> bool:
 @app.post("/api/v1/monitoring/install/{cluster_name}")
 async def install_monitoring_endpoint(cluster_name: str):
     """Zainstaluj monitoring w istniejącym klastrze"""
+    
+    # Log operation start (in-progress)
+    log_entry = activity_log.log_operation(
+        operation_type="monitoring_install",
+        cluster_name=cluster_name,
+        details="Instalowanie Prometheus + Grafana...",
+        status="in-progress",
+        metadata={"components": ["prometheus", "grafana"]}
+    )
+    
     try:
         result = helm_service.install_monitoring_stack(cluster_name)
+        
+        # Collect output from result
+        output_lines = []
+        if result.get("prometheus_output"):
+            output_lines.append("=== Prometheus Installation ===")
+            output_lines.append(result.get("prometheus_output", ""))
+        if result.get("grafana_output"):
+            output_lines.append("\n=== Grafana Installation ===")
+            output_lines.append(result.get("grafana_output", ""))
+        if result.get("message"):
+            output_lines.append(f"\n{result.get('message')}")
+        
+        combined_output = "\n".join(output_lines)
+        
+        # Update log operation status
+        if result.get("success"):
+            activity_log.update_operation_status(
+                operation_id=log_entry["id"],
+                status="success",
+                details="Zainstalowano Prometheus + Grafana",
+                metadata={
+                    "components": ["prometheus", "grafana"],
+                    "output": combined_output,
+                    "prometheus_port": result.get("prometheus_port"),
+                    "grafana_port": result.get("grafana_port")
+                }
+            )
+        else:
+            activity_log.update_operation_status(
+                operation_id=log_entry["id"],
+                status="error",
+                details=f"Błąd instalacji: {result.get('error', 'Unknown error')}",
+                metadata={
+                    "error": result.get('error', 'Unknown error'),
+                    "output": combined_output or result.get("error", "")
+                }
+            )
+        
         return {
             "cluster_name": cluster_name,
             **result
         }
     except Exception as e:
+        activity_log.update_operation_status(
+            operation_id=log_entry["id"],
+            status="error",
+            details=f"Błąd instalacji: {str(e)}",
+            metadata={"error": str(e)}
+        )
         return {
             "success": False,
             "error": f"Błąd instalacji monitoringu: {str(e)}"
@@ -1215,6 +1351,14 @@ async def uninstall_monitoring_endpoint(cluster_name: str):
             # Usuń przypisane porty
             port_manager.release_ports(cluster_name)
             
+            # Log operation
+            activity_log.log_operation(
+                operation_type="monitoring_uninstall",
+                cluster_name=cluster_name,
+                details="Usunięto Prometheus + Grafana",
+                status="success"
+            )
+            
             return {
                 "success": True,
                 "message": "Monitoring został usunięty",
@@ -1228,11 +1372,31 @@ async def uninstall_monitoring_endpoint(cluster_name: str):
             if not grafana_result.get("success"):
                 errors.append(f"Grafana: {grafana_result.get('error', 'Unknown error')}")
             
+            error_message = "; ".join(errors)
+            
+            # Log operation error
+            activity_log.log_operation(
+                operation_type="monitoring_uninstall",
+                cluster_name=cluster_name,
+                details="Błąd podczas usuwania monitoringu",
+                status="error",
+                metadata={"error": error_message}
+            )
+            
             return {
                 "success": False,
-                "error": "; ".join(errors)
+                "error": error_message
             }
     except Exception as e:
+        # Log exception
+        activity_log.log_operation(
+            operation_type="monitoring_uninstall",
+            cluster_name=cluster_name,
+            details="Wyjątek podczas usuwania monitoringu",
+            status="error",
+            metadata={"error": str(e)}
+        )
+        
         return {
             "success": False,
             "error": f"Błąd usuwania monitoringu: {str(e)}"
@@ -1557,7 +1721,44 @@ async def install_metrics_server(cluster_name: str):
 @app.post("/api/v1/backup/create/{cluster_name}")
 async def create_backup(cluster_name: str, backup_name: str = None):
     """Utwórz backup klastra"""
+    
+    # Log operation start (in-progress)
+    log_entry = activity_log.log_operation(
+        operation_type="backup_create",
+        cluster_name=cluster_name,
+        details=f"Tworzenie backupu{f': {backup_name}' if backup_name else ''}...",
+        status="in-progress",
+        metadata={"backup_name": backup_name}
+    )
+    
     result = backup_service.create_cluster_backup(cluster_name, backup_name)
+    
+    # Update log operation status
+    if result.get("success"):
+        activity_log.update_operation_status(
+            operation_id=log_entry["id"],
+            status="success",
+            details=f"Utworzono backup: {result.get('backup_name', backup_name)}",
+            metadata={
+                "backup_name": result.get("backup_name", backup_name),
+                "output": result.get("output", ""),
+                "command": result.get("command", "")
+            }
+        )
+    else:
+        activity_log.update_operation_status(
+            operation_id=log_entry["id"],
+            status="error",
+            details="Błąd podczas tworzenia backupu",
+            metadata={
+                "error": result.get("error", "Unknown error"),
+                "output": result.get("output", ""),
+                "command": result.get("command", "")
+            }
+        )
+    
+    return result
+    
     return result
 
 @app.post("/api/v1/backup/change-directory")
@@ -1626,7 +1827,7 @@ async def download_backup(backup_name: str):
 
 # ==================== APPS ENDPOINTS ====================
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Dict, Any
 
 class AppInstallRequest(BaseModel):
@@ -1635,14 +1836,82 @@ class AppInstallRequest(BaseModel):
     namespace: str
     helmChart: str
     values: Dict[str, Any] = {}
+    
+    # Properties for backward compatibility
+    @property
+    def app_name(self):
+        return self.name
+    
+    @property
+    def chart_name(self):
+        return self.helmChart
 
 @app.post("/api/v1/apps/install/{cluster_name}")
 async def install_app(cluster_name: str, app_data: AppInstallRequest):
     """Install application on cluster"""
+    
+    # Log operation start (in-progress)
+    log_entry = activity_log.log_operation(
+        operation_type="app_install",
+        cluster_name=cluster_name,
+        details=f"Instalowanie aplikacji: {app_data.app_name}...",
+        status="in-progress",
+        metadata={"app_name": app_data.app_name, "chart": app_data.chart_name}
+    )
+    
     try:
         result = app_service.install_app(cluster_name, app_data.dict())
+        
+        # Collect output (stdout/stderr from helm)
+        output_parts = []
+        if result.get("stdout"):
+            output_parts.append(result.get("stdout"))
+        if result.get("stderr"):
+            output_parts.append(result.get("stderr"))
+        if result.get("message"):
+            output_parts.append(result.get("message"))
+        
+        combined_output = "\n".join(output_parts) if output_parts else ""
+        
+        # Update log operation status
+        if result.get("success"):
+            activity_log.update_operation_status(
+                operation_id=log_entry["id"],
+                status="success",
+                details=f"Zainstalowano aplikację: {app_data.app_name}",
+                metadata={
+                    "app_name": app_data.app_name,
+                    "chart": app_data.chart_name,
+                    "output": combined_output,
+                    "namespace": app_data.namespace
+                }
+            )
+        else:
+            activity_log.update_operation_status(
+                operation_id=log_entry["id"],
+                status="error",
+                details=f"Błąd instalacji aplikacji: {app_data.app_name}",
+                metadata={
+                    "app_name": app_data.app_name,
+                    "error": result.get("error", "Unknown error"),
+                    "output": combined_output or result.get("error", "")
+                }
+            )
+        
         return result
     except Exception as e:
+        # Update log with exception
+        activity_log.update_operation_status(
+            operation_id=log_entry["id"],
+            status="error",
+            details=f"Wyjątek podczas instalacji: {app_data.app_name}",
+            metadata={
+                "app_name": app_data.app_name,
+                "error": str(e),
+                "output": str(e)
+            }
+        )
+        
         return {
             "success": False,
             "error": f"Installation error: {str(e)}"
@@ -1665,8 +1934,36 @@ async def uninstall_app(cluster_name: str, app_name: str):
     """Uninstall application from cluster"""
     try:
         result = app_service.uninstall_app(cluster_name, app_name)
+        
+        # Log operation
+        if result.get("success"):
+            activity_log.log_operation(
+                operation_type="app_uninstall",
+                cluster_name=cluster_name,
+                details=f"Odinstalowano aplikację: {app_name}",
+                status="success",
+                metadata={"app_name": app_name}
+            )
+        else:
+            activity_log.log_operation(
+                operation_type="app_uninstall",
+                cluster_name=cluster_name,
+                details=f"Błąd odinstalowania aplikacji: {app_name}",
+                status="error",
+                metadata={"app_name": app_name, "error": result.get("error", "Unknown error")}
+            )
+        
         return result
     except Exception as e:
+        # Log exception
+        activity_log.log_operation(
+            operation_type="app_uninstall",
+            cluster_name=cluster_name,
+            details=f"Wyjątek podczas odinstalowania: {app_name}",
+            status="error",
+            metadata={"app_name": app_name, "error": str(e)}
+        )
+        
         return {
             "success": False,
             "error": f"Uninstall error: {str(e)}"
@@ -1940,8 +2237,26 @@ async def apply_cluster_scaling(cluster_name: str, scaling_config: dict):
     Kind: Recreates cluster (data loss warning).
     k3d: Live node addition/removal without recreate!
     """
+    
+    # Detect provider first
+    provider = detect_cluster_provider(cluster_name)
+    worker_nodes = scaling_config.get('workerNodes', 2)
+    
+    # Log operation start (in-progress)
+    log_entry = activity_log.log_operation(
+        operation_type="cluster_scale",
+        cluster_name=cluster_name,
+        details=f"Skalowanie klastra do {worker_nodes} węzłów worker...",
+        status="in-progress",
+        metadata={
+            "provider": provider,
+            "worker_nodes": worker_nodes,
+            "cpu_per_node": scaling_config.get('cpuPerNode', 2),
+            "ram_per_node": scaling_config.get('ramPerNode', 4096)
+        }
+    )
+    
     try:
-        worker_nodes = scaling_config.get('workerNodes', 2)
         cpu_per_node = scaling_config.get('cpuPerNode', 2)
         ram_per_node = scaling_config.get('ramPerNode', 4096)
         
@@ -1971,6 +2286,14 @@ async def apply_cluster_scaling(cluster_name: str, scaling_config: dict):
             cluster_info = k3d_service.get_cluster_info(cluster_name)
             nodes = cluster_info.get("nodes", [])
             agent_count = sum(1 for n in nodes if n.get("role") == "agent")
+            
+            # Update log - success
+            activity_log.update_operation_status(
+                operation_id=log_entry["id"],
+                status="success",
+                details=f"Przeskalowano klaster k3d do {agent_count} węzłów agent (LIVE)",
+                metadata={"provider": "k3d", "final_agent_count": agent_count}
+            )
             
             return {
                 "success": True,
@@ -2048,6 +2371,14 @@ async def apply_cluster_scaling(cluster_name: str, scaling_config: dict):
             if os.path.exists(config_path):
                 os.unlink(config_path)
         
+        # Update log - success
+        activity_log.update_operation_status(
+            operation_id=log_entry["id"],
+            status="success",
+            details=f"Przeskalowano klaster Kind do {worker_nodes} węzłów worker (RECREATE)",
+            metadata={"provider": "kind", "worker_nodes": worker_nodes, "total_nodes": node_count}
+        )
+        
         return {
             "success": True,
             "message": f"Cluster successfully scaled to {worker_nodes} worker nodes",
@@ -2058,12 +2389,29 @@ async def apply_cluster_scaling(cluster_name: str, scaling_config: dict):
         
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr if e.stderr else str(e)
+        
+        # Update log - error
+        activity_log.update_operation_status(
+            operation_id=log_entry["id"],
+            status="error",
+            details=f"Błąd skalowania klastra: {error_msg}",
+            metadata={"error": error_msg}
+        )
+        
         return {
             "success": False,
             "error": f"Failed to scale cluster: {error_msg}",
             "operations": operations
         }
     except Exception as e:
+        # Update log - exception
+        activity_log.update_operation_status(
+            operation_id=log_entry["id"],
+            status="error",
+            details=f"Nieoczekiwany błąd skalowania: {str(e)}",
+            metadata={"error": str(e)}
+        )
+        
         return {
             "success": False,
             "error": f"Unexpected error: {str(e)}",

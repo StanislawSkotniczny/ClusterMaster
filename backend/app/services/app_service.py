@@ -125,6 +125,31 @@ class AppService:
                 "charts": []
             }
     
+    def _get_pods_status(self, cluster_name: str, namespace: str, label_selector: str = None) -> str:
+        """Get status of pods in namespace for diagnostics"""
+        try:
+            context = self._get_cluster_context(cluster_name)
+            
+            cmd = [
+                "kubectl", "get", "pods",
+                "-n", namespace,
+                "--context", context,
+                "-o", "wide"
+            ]
+            
+            if label_selector:
+                cmd.extend(["-l", label_selector])
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                return result.stdout
+            else:
+                return f"Nie udało się pobrać statusu podów: {result.stderr}"
+                
+        except Exception as e:
+            return f"Błąd podczas sprawdzania podów: {str(e)}"
+    
     def install_app(self, cluster_name: str, app_data: Dict[str, Any]) -> Dict[str, Any]:
         """Install application on cluster using Helm"""
         try:
@@ -168,10 +193,19 @@ class AppService:
                         "message": f"{display_name} został zainstalowany na klastrze {cluster_name}",
                         "app_name": app_name,
                         "namespace": namespace,
-                        "release_name": f"{app_name}-{cluster_name}"
+                        "release_name": f"{app_name}-{cluster_name}",
+                        "stdout": result.get("stdout", ""),
+                        "stderr": result.get("stderr", ""),
+                        "output": result.get("output", ""),
+                        "command": result.get("command", "")
                     }
                 else:
-                    return result
+                    # Return full result including error details
+                    return {
+                        **result,
+                        "app_name": app_name,
+                        "namespace": namespace
+                    }
                     
             finally:
 
@@ -422,7 +456,10 @@ class AppService:
     
     def _helm_install(self, cluster_name: str, release_name: str, chart: str, 
                      namespace: str, values_file: Optional[Path] = None) -> Dict[str, Any]:
-        """Install Helm chart"""
+        """Install Helm chart with real-time output capture"""
+        import time
+        import threading
+        
         try:
             context = self._get_cluster_context(cluster_name)
             
@@ -432,34 +469,155 @@ class AppService:
                 "--create-namespace",
                 "--kube-context", context,
                 "--wait",
-                "--timeout", "10m"
+                "--timeout", "10m",
+                "--debug"  # Add debug flag for more verbose output
             ]
             
             if values_file and values_file.exists():
                 cmd.extend(["-f", str(values_file)])
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            # Format command for logging
+            cmd_str = " ".join(cmd)
             
-            if result.returncode == 0:
+            print(f"🚀 Executing: {cmd_str}")
+            
+            # Use Popen for real-time output capture
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
+            )
+            
+            # Collect output in real-time
+            stdout_lines = []
+            stderr_lines = []
+            
+            def read_stdout():
+                for line in iter(process.stdout.readline, ''):
+                    if line:
+                        stdout_lines.append(line)
+                        print(f"  [HELM OUT] {line.rstrip()}")
+            
+            def read_stderr():
+                for line in iter(process.stderr.readline, ''):
+                    if line:
+                        stderr_lines.append(line)
+                        print(f"  [HELM ERR] {line.rstrip()}")
+            
+            # Start threads to read stdout and stderr
+            stdout_thread = threading.Thread(target=read_stdout)
+            stderr_thread = threading.Thread(target=read_stderr)
+            stdout_thread.daemon = True
+            stderr_thread.daemon = True
+            stdout_thread.start()
+            stderr_thread.start()
+            
+            # Wait for process with timeout
+            try:
+                returncode = process.wait(timeout=600)  # 10 minutes
+            except subprocess.TimeoutExpired:
+                print("⏱️ Helm install timeout - killing process...")
+                process.kill()
+                
+                # Give threads time to finish reading
+                time.sleep(2)
+                
+                stdout_output = "".join(stdout_lines)
+                stderr_output = "".join(stderr_lines)
+                
+                combined_output = ""
+                if stdout_output:
+                    combined_output += "=== STDOUT (do momentu timeout) ===\n" + stdout_output + "\n"
+                if stderr_output:
+                    combined_output += "\n=== STDERR (do momentu timeout) ===\n" + stderr_output + "\n"
+                
+                # Add pod diagnostics
+                try:
+                    combined_output += "\n=== STATUS PODÓW W NAMESPACE ===\n"
+                    pods_status = self._get_pods_status(cluster_name, namespace)
+                    combined_output += pods_status + "\n"
+                except:
+                    pass
+                
+                combined_output += "\n=== POLECENIA DIAGNOSTYCZNE ===\n"
+                combined_output += f"kubectl get pods -n {namespace} --context {context}\n"
+                combined_output += f"kubectl describe pod -n {namespace} <pod-name>\n"
+                combined_output += f"kubectl logs -n {namespace} -l app.kubernetes.io/instance={release_name}\n"
+                
+                return {
+                    "success": False,
+                    "error": "Installation timed out (10 minutes)",
+                    "stdout": stdout_output,
+                    "stderr": stderr_output,
+                    "output": combined_output,
+                    "command": cmd_str
+                }
+            
+            # Wait for threads to finish
+            stdout_thread.join(timeout=2)
+            stderr_thread.join(timeout=2)
+            
+            stdout_output = "".join(stdout_lines)
+            stderr_output = "".join(stderr_lines)
+            
+            # Combine stdout and stderr for complete log
+            combined_output = ""
+            if stdout_output:
+                combined_output += "=== STDOUT ===\n" + stdout_output + "\n"
+            if stderr_output:
+                combined_output += "\n=== STDERR ===\n" + stderr_output
+            
+            if returncode == 0:
                 return {
                     "success": True,
                     "message": f"Successfully installed {release_name}",
-                    "output": result.stdout
+                    "stdout": stdout_output,
+                    "stderr": stderr_output,
+                    "output": combined_output,
+                    "command": cmd_str
                 }
             else:
+                # Installation failed - add pod diagnostics
+                diagnostic_output = combined_output + "\n\n=== DIAGNOSTYKA ===\n"
+                try:
+                    diagnostic_output += "\n=== STATUS PODÓW W NAMESPACE ===\n"
+                    pods_status = self._get_pods_status(cluster_name, namespace)
+                    diagnostic_output += pods_status + "\n"
+                    
+                    # Get pod logs if available
+                    diagnostic_output += "\n=== LOGI PODÓW ===\n"
+                    logs_cmd = [
+                        "kubectl", "logs", "-n", namespace,
+                        "-l", f"app.kubernetes.io/instance={release_name}",
+                        "--context", context,
+                        "--tail", "50"
+                    ]
+                    logs_result = subprocess.run(logs_cmd, capture_output=True, text=True, timeout=30)
+                    if logs_result.stdout:
+                        diagnostic_output += logs_result.stdout
+                    else:
+                        diagnostic_output += "Brak logów (pody mogą nie być jeszcze uruchomione)\n"
+                except:
+                    pass
+                
                 return {
                     "success": False,
-                    "error": f"Helm install failed: {result.stderr}",
-                    "output": result.stdout
+                    "error": f"Helm install failed (exit code {returncode})",
+                    "stdout": stdout_output,
+                    "stderr": stderr_output,
+                    "output": diagnostic_output,
+                    "command": cmd_str
                 }
                 
-        except subprocess.TimeoutExpired:
-            return {
-                "success": False,
-                "error": "Installation timed out (10 minutes)"
-            }
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
             return {
                 "success": False,
-                "error": f"Installation error: {str(e)}"
+                "error": f"Installation error: {str(e)}",
+                "output": f"Exception occurred:\n{error_details}",
+                "command": cmd_str if 'cmd_str' in locals() else "N/A"
             }

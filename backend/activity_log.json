@@ -1,0 +1,307 @@
+[
+  {
+    "id": "app_install_test2_1760991883",
+    "timestamp": "2025-10-20T22:24:43.488388",
+    "operation_type": "app_install",
+    "cluster_name": "test2",
+    "details": "B\u0142\u0105d instalacji aplikacji: mysql",
+    "status": "error",
+    "metadata": {
+      "app_name": "mysql",
+      "chart": "bitnami/mysql",
+      "error": "Installation timed out (10 minutes)",
+      "output": "install.go:225: 2025-10-20 22:24:50.5517752 +0200 CEST m=+0.087892701 [debug] Original chart version: \"\"\ninstall.go:242: 2025-10-20 22:24:54.4578789 +0200 CEST m=+3.993996401 [debug] CHART PATH: C:\\Users\\syass\\AppData\\Local\\Temp\\helm\\repository\\mysql-14.0.3.tgz\n\nclient.go:144: 2025-10-20 22:24:54.8342487 +0200 CEST m=+4.370366201 [debug] creating 1 resource(s)\nclient.go:144: 2025-10-20 22:24:54.8900934 +0200 CEST m=+4.426210901 [debug] creating 8 resource(s)\nwait.go:50: 2025-10-20 22:24:54.9515809 +0200 CEST m=+4.487698401 [debug] beginning wait for 8 resources with timeout of 10m0s\nready.go:388: 2025-10-20 22:24:54.9769281 +0200 CEST m=+4.513045601 [debug] StatefulSet is not ready: databases/mysql-test2. observedGeneration (0) does not match spec generation (1).\nready.go:425: 2025-10-20 22:24:56.9641084 +0200 CEST m=+6.500225901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:24:58.9671399 +0200 CEST m=+8.503257401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:00.9649837 +0200 CEST m=+10.501101201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:02.966041 +0200 CEST m=+12.502158501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:04.9632026 +0200 CEST m=+14.499320101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:06.9645598 +0200 CEST m=+16.500677301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:08.9652414 +0200 CEST m=+18.501358901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:10.9639719 +0200 CEST m=+20.500089401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:12.9657605 +0200 CEST m=+22.501878001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:14.9669488 +0200 CEST m=+24.503066301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:16.9648871 +0200 CEST m=+26.501004601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:18.9660931 +0200 CEST m=+28.502210601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:20.9650626 +0200 CEST m=+30.501180101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:22.9642317 +0200 CEST m=+32.500349201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:24.9630394 +0200 CEST m=+34.499156901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:26.9636126 +0200 CEST m=+36.499730101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:28.9641698 +0200 CEST m=+38.500287301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:30.9651958 +0200 CEST m=+40.501313301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:32.9643533 +0200 CEST m=+42.500470801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:34.9650935 +0200 CEST m=+44.501211001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:36.9673478 +0200 CEST m=+46.503465301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:38.9672583 +0200 CEST m=+48.503375801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:40.9657331 +0200 CEST m=+50.501850601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:42.9650617 +0200 CEST m=+52.501179201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:44.965234 +0200 CEST m=+54.501351501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:46.964675 +0200 CEST m=+56.500792501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:48.9642257 +0200 CEST m=+58.500343201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:50.9648883 +0200 CEST m=+60.501005801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:52.9652739 +0200 CEST m=+62.501391401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:54.9637751 +0200 CEST m=+64.499892601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:56.9649401 +0200 CEST m=+66.501057601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:25:58.9677183 +0200 CEST m=+68.503835801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:00.9646923 +0200 CEST m=+70.500809801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:02.9652828 +0200 CEST m=+72.501400301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:04.9668283 +0200 CEST m=+74.502945801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:06.9656624 +0200 CEST m=+76.501779901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:08.9631178 +0200 CEST m=+78.499235301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:10.9679259 +0200 CEST m=+80.504043401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:12.9654455 +0200 CEST m=+82.501563001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:14.9649188 +0200 CEST m=+84.501036301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:16.964625 +0200 CEST m=+86.500742501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:18.9648523 +0200 CEST m=+88.500969801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:20.9649091 +0200 CEST m=+90.501026601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:22.9650726 +0200 CEST m=+92.501190101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:24.9643754 +0200 CEST m=+94.500492901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:26.9666357 +0200 CEST m=+96.502753201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:28.9650749 +0200 CEST m=+98.501192401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:30.9649753 +0200 CEST m=+100.501092801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:32.967285 +0200 CEST m=+102.503402501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:34.966275 +0200 CEST m=+104.502392501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:36.964639 +0200 CEST m=+106.500756501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:38.9763161 +0200 CEST m=+108.512433601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:40.9661441 +0200 CEST m=+110.502261601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:42.9653692 +0200 CEST m=+112.501486701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:44.9661177 +0200 CEST m=+114.502235201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:46.9653998 +0200 CEST m=+116.501517301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:48.9655009 +0200 CEST m=+118.501618401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:50.9679177 +0200 CEST m=+120.504035201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:52.9656921 +0200 CEST m=+122.501809601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:54.9662725 +0200 CEST m=+124.502390001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:56.9649551 +0200 CEST m=+126.501072601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:26:58.967538 +0200 CEST m=+128.503655501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:00.9684009 +0200 CEST m=+130.504518401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:02.9631694 +0200 CEST m=+132.499286901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:04.9686078 +0200 CEST m=+134.504725301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:06.9655985 +0200 CEST m=+136.501716001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:08.9656494 +0200 CEST m=+138.501766901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:10.9664815 +0200 CEST m=+140.502599001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:12.9660085 +0200 CEST m=+142.502126001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:14.9640587 +0200 CEST m=+144.500176201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:16.9685906 +0200 CEST m=+146.504708101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:18.9652372 +0200 CEST m=+148.501354701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:20.965792 +0200 CEST m=+150.501909501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:22.9658411 +0200 CEST m=+152.501958601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:24.9650287 +0200 CEST m=+154.501146201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:26.9649303 +0200 CEST m=+156.501047801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:28.9648281 +0200 CEST m=+158.500945601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:30.9647086 +0200 CEST m=+160.500826101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:32.9673679 +0200 CEST m=+162.503485401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:34.9657421 +0200 CEST m=+164.501859601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:36.9663515 +0200 CEST m=+166.502469001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:38.9663004 +0200 CEST m=+168.502417901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:40.9663338 +0200 CEST m=+170.502451301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:42.9648629 +0200 CEST m=+172.500980401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:44.9647101 +0200 CEST m=+174.500827601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:46.9666924 +0200 CEST m=+176.502809901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:48.964961 +0200 CEST m=+178.501078501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:50.964622 +0200 CEST m=+180.500739501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:52.9651363 +0200 CEST m=+182.501253801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:54.9643467 +0200 CEST m=+184.500464201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:56.9645205 +0200 CEST m=+186.500638001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:27:58.966088 +0200 CEST m=+188.502205501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:00.9798238 +0200 CEST m=+190.515941301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:02.9737661 +0200 CEST m=+192.509883601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:04.9650402 +0200 CEST m=+194.501157701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:06.9652093 +0200 CEST m=+196.501326801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:08.9669804 +0200 CEST m=+198.503097901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:10.965933 +0200 CEST m=+200.502050501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:12.9679456 +0200 CEST m=+202.504063101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:14.9654994 +0200 CEST m=+204.501616901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:16.9860357 +0200 CEST m=+206.522153201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:18.9650818 +0200 CEST m=+208.501199301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:20.9664636 +0200 CEST m=+210.502581101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:22.9638461 +0200 CEST m=+212.499963601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:24.965015 +0200 CEST m=+214.501132501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:26.9640648 +0200 CEST m=+216.500182301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:28.9647005 +0200 CEST m=+218.500818001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:30.9640958 +0200 CEST m=+220.500213301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:32.9644156 +0200 CEST m=+222.500533101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:34.964765 +0200 CEST m=+224.500882501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:36.963908 +0200 CEST m=+226.500025501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:38.9702185 +0200 CEST m=+228.506336001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:40.965674 +0200 CEST m=+230.501791501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:42.9659099 +0200 CEST m=+232.502027401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:44.9646627 +0200 CEST m=+234.500780201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:46.9641018 +0200 CEST m=+236.500219301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:48.9662158 +0200 CEST m=+238.502333301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:50.9648431 +0200 CEST m=+240.500960601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:52.9660178 +0200 CEST m=+242.502135301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:54.964684 +0200 CEST m=+244.500801501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:56.9655415 +0200 CEST m=+246.501659001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:28:58.963849 +0200 CEST m=+248.499966501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:00.9643536 +0200 CEST m=+250.500471101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:02.964685 +0200 CEST m=+252.500802501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:04.9668023 +0200 CEST m=+254.502919801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:06.9653624 +0200 CEST m=+256.501479901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:08.9635025 +0200 CEST m=+258.499620001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:10.9656988 +0200 CEST m=+260.501816301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:12.9749026 +0200 CEST m=+262.511020101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:14.9649807 +0200 CEST m=+264.501098201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:16.966986 +0200 CEST m=+266.503103501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:18.9652108 +0200 CEST m=+268.501328301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:20.9690695 +0200 CEST m=+270.505187001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:22.9680974 +0200 CEST m=+272.504214901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:24.9659948 +0200 CEST m=+274.502112301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:26.9648284 +0200 CEST m=+276.500945901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:28.9674672 +0200 CEST m=+278.503584701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:30.9664108 +0200 CEST m=+280.502528301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:32.9663893 +0200 CEST m=+282.502506801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:34.9676115 +0200 CEST m=+284.503729001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:36.9663712 +0200 CEST m=+286.502488701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:38.9661517 +0200 CEST m=+288.502269201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:40.9667733 +0200 CEST m=+290.502890801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:42.9662091 +0200 CEST m=+292.502326601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:44.9679925 +0200 CEST m=+294.504110001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:46.964599 +0200 CEST m=+296.500716501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:48.9663667 +0200 CEST m=+298.502484201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:50.9661657 +0200 CEST m=+300.502283201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:52.9673957 +0200 CEST m=+302.503513201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:54.9647171 +0200 CEST m=+304.500834601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:56.9658528 +0200 CEST m=+306.501970301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:29:58.9653129 +0200 CEST m=+308.501430401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:00.9650572 +0200 CEST m=+310.501174701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:02.9674796 +0200 CEST m=+312.503597101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:04.9644303 +0200 CEST m=+314.500547801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:06.9651686 +0200 CEST m=+316.501286101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:08.9654389 +0200 CEST m=+318.501556401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:10.9716339 +0200 CEST m=+320.507751401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:12.9671142 +0200 CEST m=+322.503231701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:14.9658627 +0200 CEST m=+324.501980201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:16.9652665 +0200 CEST m=+326.501384001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:18.9659007 +0200 CEST m=+328.502018201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:20.9778567 +0200 CEST m=+330.513974201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:22.9651569 +0200 CEST m=+332.501274401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:24.9644145 +0200 CEST m=+334.500532001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:26.9651455 +0200 CEST m=+336.501263001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:28.9656976 +0200 CEST m=+338.501815101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:30.9671939 +0200 CEST m=+340.503311401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:32.9642325 +0200 CEST m=+342.500350001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:34.9658298 +0200 CEST m=+344.501947301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:36.9679907 +0200 CEST m=+346.504108201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:38.9668591 +0200 CEST m=+348.502976601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:40.9664312 +0200 CEST m=+350.502548701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:42.9644248 +0200 CEST m=+352.500542301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:44.9666499 +0200 CEST m=+354.502767401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:46.9646342 +0200 CEST m=+356.500751701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:48.9661611 +0200 CEST m=+358.502278601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:50.9648468 +0200 CEST m=+360.500964301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:52.9652805 +0200 CEST m=+362.501398001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:54.9657657 +0200 CEST m=+364.501883201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:56.9656239 +0200 CEST m=+366.501741401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:30:58.9657162 +0200 CEST m=+368.501833701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:00.9651226 +0200 CEST m=+370.501240101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:02.9652016 +0200 CEST m=+372.501319101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:04.9660465 +0200 CEST m=+374.502164001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:06.9655001 +0200 CEST m=+376.501617601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:08.9643728 +0200 CEST m=+378.500490301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:10.969714 +0200 CEST m=+380.505831501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:12.964803 +0200 CEST m=+382.500920501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:14.9645151 +0200 CEST m=+384.500632601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:16.9650328 +0200 CEST m=+386.501150301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:18.9646528 +0200 CEST m=+388.500770301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:20.9637647 +0200 CEST m=+390.499882201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:22.9638433 +0200 CEST m=+392.499960801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:24.9645761 +0200 CEST m=+394.500693601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:26.9644986 +0200 CEST m=+396.500616101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:28.9650686 +0200 CEST m=+398.501186101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:30.9654338 +0200 CEST m=+400.501551301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:32.9689038 +0200 CEST m=+402.505021301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:34.9663781 +0200 CEST m=+404.502495601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:36.9664332 +0200 CEST m=+406.502550701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:38.9671113 +0200 CEST m=+408.503228801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:40.9657467 +0200 CEST m=+410.501864201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:42.9657437 +0200 CEST m=+412.501861201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:44.9673448 +0200 CEST m=+414.503462301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:46.9654284 +0200 CEST m=+416.501545901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:48.9640889 +0200 CEST m=+418.500206401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:50.9659129 +0200 CEST m=+420.502030401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:52.965215 +0200 CEST m=+422.501332501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:54.9674445 +0200 CEST m=+424.503562001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:56.9651721 +0200 CEST m=+426.501289601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:31:58.964071 +0200 CEST m=+428.500188501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:00.9658537 +0200 CEST m=+430.501971201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:02.9650489 +0200 CEST m=+432.501166401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:04.9657289 +0200 CEST m=+434.501846401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:06.9780119 +0200 CEST m=+436.514129401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:08.9650166 +0200 CEST m=+438.501134101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:10.9654468 +0200 CEST m=+440.501564301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:12.9662225 +0200 CEST m=+442.502340001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:14.9656846 +0200 CEST m=+444.501802101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:16.9659942 +0200 CEST m=+446.502111701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:18.9683184 +0200 CEST m=+448.504435901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:20.9646556 +0200 CEST m=+450.500773101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:22.9700928 +0200 CEST m=+452.506210301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:24.9661972 +0200 CEST m=+454.502314701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:26.9676572 +0200 CEST m=+456.503774701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:28.9652996 +0200 CEST m=+458.501417101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:30.9635908 +0200 CEST m=+460.499708301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:32.9642283 +0200 CEST m=+462.500345801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:34.9652744 +0200 CEST m=+464.501391901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:36.9661566 +0200 CEST m=+466.502274101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:38.9768321 +0200 CEST m=+468.512949601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:40.9668177 +0200 CEST m=+470.502935201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:42.9632047 +0200 CEST m=+472.499322201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:44.9660273 +0200 CEST m=+474.502144801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:46.9656857 +0200 CEST m=+476.501803201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:48.965607 +0200 CEST m=+478.501724501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:50.9650789 +0200 CEST m=+480.501196401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:52.9650392 +0200 CEST m=+482.501156701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:54.9639549 +0200 CEST m=+484.500072401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:56.9650677 +0200 CEST m=+486.501185201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:32:58.965548 +0200 CEST m=+488.501665501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:00.9651803 +0200 CEST m=+490.501297801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:02.9668755 +0200 CEST m=+492.502993001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:04.9645371 +0200 CEST m=+494.500654601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:06.966579 +0200 CEST m=+496.502696501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:08.9671319 +0200 CEST m=+498.503249401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:10.9633852 +0200 CEST m=+500.499502701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:12.963777 +0200 CEST m=+502.499894501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:14.9737391 +0200 CEST m=+504.509856601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:16.9645519 +0200 CEST m=+506.500669401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:18.9654714 +0200 CEST m=+508.501588901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:20.9659531 +0200 CEST m=+510.502070601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:22.9646375 +0200 CEST m=+512.500755001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:24.9644854 +0200 CEST m=+514.500602901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:26.964486 +0200 CEST m=+516.500603501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:28.9650633 +0200 CEST m=+518.501180801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:30.9656313 +0200 CEST m=+520.501748801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:32.9639378 +0200 CEST m=+522.500055301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:34.9640423 +0200 CEST m=+524.500159801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:36.966127 +0200 CEST m=+526.502244501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:38.9672124 +0200 CEST m=+528.503329901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:40.9665949 +0200 CEST m=+530.502712401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:42.96849 +0200 CEST m=+532.504607501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:44.9658657 +0200 CEST m=+534.501983201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:46.965299 +0200 CEST m=+536.501416501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:48.9660073 +0200 CEST m=+538.502124801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:50.9670415 +0200 CEST m=+540.503159001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:52.9641091 +0200 CEST m=+542.500226601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:54.9639182 +0200 CEST m=+544.500035701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:56.9789741 +0200 CEST m=+546.515091601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:33:58.9634646 +0200 CEST m=+548.499582101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:00.9660855 +0200 CEST m=+550.502203001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:02.9623929 +0200 CEST m=+552.498510401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:04.9652049 +0200 CEST m=+554.501322401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:06.9642435 +0200 CEST m=+556.500361001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:08.9630892 +0200 CEST m=+558.499206701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:10.9657752 +0200 CEST m=+560.501892701 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:12.9627585 +0200 CEST m=+562.498876001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:14.9638779 +0200 CEST m=+564.499995401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:16.9670318 +0200 CEST m=+566.503149301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:18.9641298 +0200 CEST m=+568.500247301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:20.9676279 +0200 CEST m=+570.503745401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:22.9691039 +0200 CEST m=+572.505221401 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:24.964725 +0200 CEST m=+574.500842501 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:26.9659403 +0200 CEST m=+576.502057801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:28.9675867 +0200 CEST m=+578.503704201 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:30.9654924 +0200 CEST m=+580.501609901 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:32.9645196 +0200 CEST m=+582.500637101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:34.9651741 +0200 CEST m=+584.501291601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:36.9660406 +0200 CEST m=+586.502158101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:38.9658526 +0200 CEST m=+588.501970101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:40.9636991 +0200 CEST m=+590.499816601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:42.9738756 +0200 CEST m=+592.509993101 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:44.9661625 +0200 CEST m=+594.502280001 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:46.9653041 +0200 CEST m=+596.501421601 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:48.9647608 +0200 CEST m=+598.500878301 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\nready.go:425: 2025-10-20 22:34:50.9657713 +0200 CEST m=+600.501888801 [debug] StatefulSet is not ready: databases/mysql-test2. 0 out of 1 expected pods are ready\n"
+    },
+    "updated_at": "2025-10-20T22:34:53.331287"
+  },
+  {
+    "id": "app_uninstall_test2_1760991840",
+    "timestamp": "2025-10-20T22:24:00.360986",
+    "operation_type": "app_uninstall",
+    "cluster_name": "test2",
+    "details": "Odinstalowano aplikacj\u0119: mysql-test2",
+    "status": "success",
+    "metadata": {
+      "app_name": "mysql-test2"
+    }
+  },
+  {
+    "id": "app_install_test2_1760990962",
+    "timestamp": "2025-10-20T22:09:22.099024",
+    "operation_type": "app_install",
+    "cluster_name": "test2",
+    "details": "B\u0142\u0105d instalacji aplikacji: mysql",
+    "status": "error",
+    "metadata": {
+      "app_name": "mysql",
+      "chart": "bitnami/mysql",
+      "error": "Installation timed out (10 minutes)",
+      "output": "Installation timed out (10 minutes)"
+    },
+    "updated_at": "2025-10-20T22:19:34.181491"
+  },
+  {
+    "id": "cluster_scale_test2_1760990431",
+    "timestamp": "2025-10-20T22:00:31.191840",
+    "operation_type": "cluster_scale",
+    "cluster_name": "test2",
+    "details": "Przeskalowano klaster Kind do 3 w\u0119z\u0142\u00f3w worker (RECREATE)",
+    "status": "success",
+    "metadata": {
+      "provider": "kind",
+      "worker_nodes": 3,
+      "cpu_per_node": 2,
+      "ram_per_node": 4096,
+      "total_nodes": 4
+    },
+    "updated_at": "2025-10-20T22:01:48.415583"
+  },
+  {
+    "id": "backup_create_test2_1760990294",
+    "timestamp": "2025-10-20T21:58:14.722588",
+    "operation_type": "backup_create",
+    "cluster_name": "test2",
+    "details": "Utworzono backup: test2_backup_20251020_215814",
+    "status": "success",
+    "metadata": {
+      "backup_name": "test2_backup_20251020_215814",
+      "output": "",
+      "command": ""
+    },
+    "updated_at": "2025-10-20T21:58:43.798063"
+  },
+  {
+    "id": "app_install_test2_1760989578",
+    "timestamp": "2025-10-20T21:46:18.704697",
+    "operation_type": "app_install",
+    "cluster_name": "test2",
+    "details": "B\u0142\u0105d instalacji aplikacji: mysql",
+    "status": "error",
+    "metadata": {
+      "app_name": "mysql",
+      "chart": "bitnami/mysql",
+      "error": "Installation timed out (10 minutes)",
+      "output": "Installation timed out (10 minutes)"
+    },
+    "updated_at": "2025-10-20T21:56:30.880532"
+  },
+  {
+    "id": "backup_create_test2_1760983114",
+    "timestamp": "2025-10-20T19:58:34.422457",
+    "operation_type": "backup_create",
+    "cluster_name": "test2",
+    "details": "Utworzono backup: test2_backup_20251020_195834",
+    "status": "success",
+    "metadata": {
+      "backup_name": "test2_backup_20251020_195834"
+    },
+    "updated_at": "2025-10-20T19:58:58.148132"
+  },
+  {
+    "id": "backup_create_test2_1760982634",
+    "timestamp": "2025-10-20T19:50:34.446429",
+    "operation_type": "backup_create",
+    "cluster_name": "test2",
+    "details": "Utworzono backup: test2_backup_20251020_195034",
+    "status": "success",
+    "metadata": {
+      "backup_name": "test2_backup_20251020_195034"
+    },
+    "updated_at": "2025-10-20T19:50:57.109804"
+  },
+  {
+    "id": "monitoring_install_test2_1760975053",
+    "timestamp": "2025-10-20T17:44:13.069258",
+    "operation_type": "monitoring_install",
+    "cluster_name": "test2",
+    "details": "Zainstalowano Prometheus + Grafana",
+    "status": "success",
+    "metadata": {
+      "components": [
+        "prometheus",
+        "grafana"
+      ]
+    },
+    "updated_at": "2025-10-20T17:45:41.021530"
+  },
+  {
+    "id": "app_uninstall_test2_1760974906",
+    "timestamp": "2025-10-20T17:41:46.999280",
+    "operation_type": "app_uninstall",
+    "cluster_name": "test2",
+    "details": "Odinstalowano aplikacj\u0119: jenkins-test2",
+    "status": "success",
+    "metadata": {
+      "app_name": "jenkins-test2"
+    }
+  },
+  {
+    "id": "app_uninstall_test2_1760974902",
+    "timestamp": "2025-10-20T17:41:42.342906",
+    "operation_type": "app_uninstall",
+    "cluster_name": "test2",
+    "details": "Odinstalowano aplikacj\u0119: kafka-test2",
+    "status": "success",
+    "metadata": {
+      "app_name": "kafka-test2"
+    }
+  },
+  {
+    "id": "app_install_test2_1760974791",
+    "timestamp": "2025-10-20T17:39:51.249273",
+    "operation_type": "app_install",
+    "cluster_name": "test2",
+    "details": "Zainstalowano aplikacj\u0119: jenkins",
+    "status": "success",
+    "metadata": {
+      "app_name": "jenkins",
+      "chart": "jenkins/jenkins"
+    },
+    "updated_at": "2025-10-20T17:40:56.598331"
+  },
+  {
+    "id": "app_install_test2_1760956109",
+    "timestamp": "2025-10-20T12:28:29.784228",
+    "operation_type": "app_install",
+    "cluster_name": "test2",
+    "details": "B\u0142\u0105d instalacji aplikacji: kafka",
+    "status": "error",
+    "metadata": {
+      "app_name": "kafka",
+      "chart": "bitnami/kafka",
+      "error": "Installation timed out (10 minutes)"
+    },
+    "updated_at": "2025-10-20T12:38:46.142489"
+  },
+  {
+    "id": "cluster_scale_test2_1760955920",
+    "timestamp": "2025-10-20T12:25:20.502489",
+    "operation_type": "cluster_scale",
+    "cluster_name": "test2",
+    "details": "Przeskalowano klaster Kind do 6 w\u0119z\u0142\u00f3w worker (RECREATE)",
+    "status": "success",
+    "metadata": {
+      "provider": "kind",
+      "worker_nodes": 6,
+      "cpu_per_node": 2,
+      "ram_per_node": 4096,
+      "total_nodes": 7
+    },
+    "updated_at": "2025-10-20T12:26:38.905137"
+  },
+  {
+    "id": "cluster_scale_test122_1760955850",
+    "timestamp": "2025-10-20T12:24:10.653385",
+    "operation_type": "cluster_scale",
+    "cluster_name": "test122",
+    "details": "Przeskalowano klaster k3d do 0 w\u0119z\u0142\u00f3w agent (LIVE)",
+    "status": "success",
+    "metadata": {
+      "provider": "k3d",
+      "worker_nodes": 6,
+      "cpu_per_node": 0,
+      "ram_per_node": 0,
+      "final_agent_count": 0
+    },
+    "updated_at": "2025-10-20T12:24:31.868698"
+  },
+  {
+    "id": "backup_create_test2_1760955347",
+    "timestamp": "2025-10-20T12:15:47.298694",
+    "operation_type": "backup_create",
+    "cluster_name": "test2",
+    "details": "Utworzono backup: test2_backup_20251020_121547",
+    "status": "success",
+    "metadata": {
+      "backup_name": "test2_backup_20251020_121547"
+    },
+    "updated_at": "2025-10-20T12:16:16.611366"
+  },
+  {
+    "id": "app_uninstall_test2_1760955195",
+    "timestamp": "2025-10-20T12:13:15.823917",
+    "operation_type": "app_uninstall",
+    "cluster_name": "test2",
+    "details": "Odinstalowano aplikacj\u0119: mysql-test2",
+    "status": "success",
+    "metadata": {
+      "app_name": "mysql-test2"
+    }
+  },
+  {
+    "id": "app_uninstall_test2_1760955186",
+    "timestamp": "2025-10-20T12:13:06.557878",
+    "operation_type": "app_uninstall",
+    "cluster_name": "test2",
+    "details": "Odinstalowano aplikacj\u0119: postgresql-test2",
+    "status": "success",
+    "metadata": {
+      "app_name": "postgresql-test2"
+    }
+  },
+  {
+    "id": "app_install_test2_1760955018",
+    "timestamp": "2025-10-20T12:10:18.230663",
+    "operation_type": "app_install",
+    "cluster_name": "test2",
+    "details": "Zainstalowano aplikacj\u0119: redis",
+    "status": "success",
+    "metadata": {
+      "app_name": "redis",
+      "chart": "bitnami/redis"
+    },
+    "updated_at": "2025-10-20T12:12:06.669202"
+  },
+  {
+    "id": "app_install_test2_1760954406",
+    "timestamp": "2025-10-20T12:00:06.494060",
+    "operation_type": "app_install",
+    "cluster_name": "test2",
+    "details": "B\u0142\u0105d instalacji aplikacji: mysql",
+    "status": "error",
+    "metadata": {
+      "app_name": "mysql",
+      "chart": "bitnami/mysql",
+      "error": "Installation timed out (10 minutes)"
+    },
+    "updated_at": "2025-10-20T12:10:18.206646"
+  },
+  {
+    "id": "monitoring_install_test2_1760953781",
+    "timestamp": "2025-10-20T11:49:41.727108",
+    "operation_type": "monitoring_install",
+    "cluster_name": "test2",
+    "details": "Zainstalowano Prometheus + Grafana",
+    "status": "success",
+    "metadata": {
+      "components": [
+        "prometheus",
+        "grafana"
+      ]
+    },
+    "updated_at": "2025-10-20T11:50:56.728797"
+  },
+  {
+    "id": 2,
+    "timestamp": "2025-10-20T11:41:02.407942",
+    "operation_type": "app_uninstall",
+    "cluster_name": "test122",
+    "details": "B\u0142\u0105d odinstalowania aplikacji: traefik",
+    "status": "error",
+    "metadata": {
+      "app_name": "traefik",
+      "error": "Release traefik-test122 not found"
+    }
+  },
+  {
+    "id": 1,
+    "timestamp": "2025-10-20T11:39:52.446670",
+    "operation_type": "backup_create",
+    "cluster_name": "test122",
+    "details": "Utworzono backup: test122_backup_20251020_113942",
+    "status": "success",
+    "metadata": {
+      "backup_name": "test122_backup_20251020_113942"
+    }
+  }
+]
