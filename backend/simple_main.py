@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from sse_starlette.sse import EventSourceResponse
 import subprocess
 import os
 import shutil
@@ -12,6 +13,7 @@ from app.services.backup_service import BackupService
 from app.services.app_service import AppService
 from app.services.k3d_service import k3d_service
 from app.services.activity_log import activity_log
+from app.services.notification_service import notification_service
 import argparse
 import sys
 import asyncio
@@ -469,6 +471,120 @@ async def get_cluster_activity_log(cluster_name: str, limit: int = 10):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching logs: {str(e)}")
 
+# ============================================
+# NOTIFICATION ENDPOINTS (SSE)
+# ============================================
+
+@app.get("/api/notifications/stream")
+async def notification_stream(request: Request):
+    """
+    SSE endpoint for real-time notifications
+    
+    Server-Sent Events stream that pushes notifications to the client in real-time.
+    Each user gets their own notification queue.
+    """
+    # TODO: Get user_id from authentication
+    # For now, use a default user or extract from query params
+    user_id = request.query_params.get("user_id", "default_user")
+    
+    # Register user and get their queue
+    queue = await notification_service.register_user(user_id)
+    
+    async def event_generator():
+        try:
+            print(f"[SSE] Client connected: {user_id}")
+            
+            while True:
+                # Check if client disconnected
+                if await request.is_disconnected():
+                    print(f"[SSE] Client disconnected: {user_id}")
+                    break
+                
+                try:
+                    # Wait for notification with timeout (30s heartbeat)
+                    notification = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    
+                    # Send notification event
+                    yield {
+                        "event": "notification",
+                        "data": json.dumps(notification)
+                    }
+                    
+                except asyncio.TimeoutError:
+                    # Send heartbeat ping to keep connection alive
+                    yield {
+                        "event": "ping",
+                        "data": json.dumps({"timestamp": datetime.now().isoformat()})
+                    }
+                    
+        except Exception as e:
+            print(f"[SSE] Error in event stream: {e}")
+        finally:
+            # Cleanup: unregister user
+            notification_service.unregister_user(user_id)
+            print(f"[SSE] Cleaned up connection for: {user_id}")
+    
+    return EventSourceResponse(event_generator())
+
+@app.get("/api/notifications/history")
+async def get_notification_history(limit: int = 20):
+    """Get notification history for current user"""
+    # TODO: Get user_id from authentication
+    user_id = "default_user"
+    
+    try:
+        notifications = notification_service.get_notification_history(user_id, limit=limit)
+        unread_count = notification_service.get_unread_count(user_id)
+        
+        return {
+            "success": True,
+            "notifications": notifications,
+            "unread_count": unread_count,
+            "total": len(notifications)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching notifications: {str(e)}")
+
+@app.post("/api/notifications/read-all")
+async def mark_all_notifications_as_read():
+    """Mark all notifications as read"""
+    # TODO: Get user_id from authentication
+    user_id = "default_user"
+    
+    try:
+        notification_service.mark_all_as_read(user_id)
+        return {"success": True, "message": "All notifications marked as read"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error marking notifications: {str(e)}")
+
+@app.post("/api/notifications/{notification_id}/read")
+async def mark_notification_as_read(notification_id: str):
+    """Mark a notification as read"""
+    # TODO: Get user_id from authentication
+    user_id = "default_user"
+    
+    try:
+        notification_service.mark_as_read(user_id, notification_id)
+        return {"success": True, "message": "Notification marked as read"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error marking notification: {str(e)}")
+
+@app.delete("/api/notifications/{notification_id}")
+async def delete_notification(notification_id: str):
+    """Delete a notification"""
+    # TODO: Get user_id from authentication
+    user_id = "default_user"
+    
+    try:
+        notification_service.delete_notification(user_id, notification_id)
+        return {"success": True, "message": "Notification deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting notification: {str(e)}")
+
+# ============================================
+# END NOTIFICATION ENDPOINTS
+# ============================================
+
 @app.post("/api/v1/cache/clear")
 async def clear_cache():
     """Wyczyść cache klastrów (użyj po usunięciu/dodaniu klastra)"""
@@ -685,6 +801,20 @@ async def create_cluster(cluster_data: dict):
                 metadata={"provider": "k3d", "node_count": node_count, "agents": agents, "servers": servers}
             )
             
+            # Send notification
+            await notification_service.send_notification(
+                user_id="default_user",  # TODO: Get from auth
+                notification_type="cluster_created",
+                severity="success",
+                title="✅ Klaster utworzony",
+                message=f"Klaster k3d '{cluster_name}' został pomyślnie utworzony z {node_count} węzłami",
+                metadata={
+                    "cluster": cluster_name,
+                    "provider": "k3d",
+                    "node_count": node_count
+                }
+            )
+            
             # Instalacja monitoringu jeśli zaznaczone
             if install_monitoring:
                 print(f"Installing monitoring for k3d cluster {cluster_name}...")
@@ -706,6 +836,15 @@ async def create_cluster(cluster_data: dict):
             return cluster_result
             
         except Exception as e:
+            # Send error notification
+            await notification_service.send_notification(
+                user_id="default_user",  # TODO: Get from auth
+                notification_type="cluster_create_error",
+                severity="error",
+                title="❌ Błąd tworzenia klastra",
+                message=f"Nie udało się utworzyć klastra k3d '{cluster_name}': {str(e)}",
+                metadata={"cluster": cluster_name, "provider": "k3d"}
+            )
             return {"error": f"Błąd podczas tworzenia klastra k3d: {str(e)}", "status": "error"}
     
     # === KIND IMPLEMENTATION (ORIGINAL) ===
@@ -776,6 +915,20 @@ async def create_cluster(cluster_data: dict):
             metadata={"provider": "kind", "node_count": node_count}
         )
         
+        # Send notification
+        await notification_service.send_notification(
+            user_id="default_user",  # TODO: Get from auth
+            notification_type="cluster_created",
+            severity="success",
+            title="✅ Klaster utworzony",
+            message=f"Klaster Kind '{cluster_name}' został pomyślnie utworzony z {node_count} węzłami",
+            metadata={
+                "cluster": cluster_name,
+                "provider": "kind",
+                "node_count": node_count
+            }
+        )
+        
         # DODAJ INSTALACJĘ MONITORINGU JEŚLI ZAZNACZONE
         if install_monitoring:
             print(f"Installing monitoring for cluster {cluster_name}...")
@@ -810,6 +963,15 @@ async def create_cluster(cluster_data: dict):
         return cluster_result
         
     except Exception as e:
+        # Send error notification
+        await notification_service.send_notification(
+            user_id="default_user",  # TODO: Get from auth
+            notification_type="cluster_create_error",
+            severity="error",
+            title="❌ Błąd tworzenia klastra",
+            message=f"Nie udało się utworzyć klastra Kind '{cluster_name}': {str(e)}",
+            metadata={"cluster": cluster_name, "provider": "kind"}
+        )
         return {
             "error": f"Błąd podczas tworzenia klastra: {str(e)}",
             "cluster_name": cluster_name
@@ -886,6 +1048,19 @@ async def delete_cluster(cluster_name: str):
         details=f"Usunięto klaster {provider.upper()}",
         status="success",
         metadata={"provider": provider}
+    )
+    
+    # Send notification
+    await notification_service.send_notification(
+        user_id="default_user",  # TODO: Get from auth
+        notification_type="cluster_deleted",
+        severity="info",
+        title="🗑️ Klaster usunięty",
+        message=f"Klaster '{cluster_name}' ({provider.upper()}) został pomyślnie usunięty",
+        metadata={
+            "cluster": cluster_name,
+            "provider": provider
+        }
     )
     
     return {
@@ -1309,6 +1484,20 @@ async def install_monitoring_endpoint(cluster_name: str):
                     "grafana_port": result.get("grafana_port")
                 }
             )
+            
+            # Send success notification
+            await notification_service.send_notification(
+                user_id="default_user",  # TODO: Get from auth
+                notification_type="monitoring_installed",
+                severity="success",
+                title="📊 Monitoring zainstalowany",
+                message=f"Prometheus + Grafana zostały zainstalowane w klastrze '{cluster_name}'",
+                metadata={
+                    "cluster": cluster_name,
+                    "prometheus_port": result.get("prometheus_port"),
+                    "grafana_port": result.get("grafana_port")
+                }
+            )
         else:
             activity_log.update_operation_status(
                 operation_id=log_entry["id"],
@@ -1318,6 +1507,16 @@ async def install_monitoring_endpoint(cluster_name: str):
                     "error": result.get('error', 'Unknown error'),
                     "output": combined_output or result.get("error", "")
                 }
+            )
+            
+            # Send error notification
+            await notification_service.send_notification(
+                user_id="default_user",  # TODO: Get from auth
+                notification_type="monitoring_install_error",
+                severity="error",
+                title="❌ Błąd instalacji monitoringu",
+                message=f"Nie udało się zainstalować monitoringu w klastrze '{cluster_name}': {result.get('error', 'Unknown error')}",
+                metadata={"cluster": cluster_name}
             )
         
         return {
@@ -1331,6 +1530,17 @@ async def install_monitoring_endpoint(cluster_name: str):
             details=f"Błąd instalacji: {str(e)}",
             metadata={"error": str(e)}
         )
+        
+        # Send error notification
+        await notification_service.send_notification(
+            user_id="default_user",  # TODO: Get from auth
+            notification_type="monitoring_install_error",
+            severity="error",
+            title="❌ Błąd instalacji monitoringu",
+            message=f"Wystąpił błąd podczas instalacji monitoringu w klastrze '{cluster_name}': {str(e)}",
+            metadata={"cluster": cluster_name}
+        )
+        
         return {
             "success": False,
             "error": f"Błąd instalacji monitoringu: {str(e)}"
@@ -1745,6 +1955,19 @@ async def create_backup(cluster_name: str, backup_name: str = None):
                 "command": result.get("command", "")
             }
         )
+        
+        # Send success notification
+        await notification_service.send_notification(
+            user_id="default_user",  # TODO: Get from auth
+            notification_type="backup_created",
+            severity="success",
+            title="💾 Backup utworzony",
+            message=f"Backup '{result.get('backup_name', backup_name)}' klastra '{cluster_name}' został pomyślnie utworzony",
+            metadata={
+                "cluster": cluster_name,
+                "backup_name": result.get("backup_name", backup_name)
+            }
+        )
     else:
         activity_log.update_operation_status(
             operation_id=log_entry["id"],
@@ -1755,6 +1978,16 @@ async def create_backup(cluster_name: str, backup_name: str = None):
                 "output": result.get("output", ""),
                 "command": result.get("command", "")
             }
+        )
+        
+        # Send error notification
+        await notification_service.send_notification(
+            user_id="default_user",  # TODO: Get from auth
+            notification_type="backup_create_error",
+            severity="error",
+            title="❌ Błąd tworzenia backupu",
+            message=f"Nie udało się utworzyć backupu klastra '{cluster_name}': {result.get('error', 'Unknown error')}",
+            metadata={"cluster": cluster_name}
         )
     
     return result
@@ -1798,12 +2031,49 @@ async def get_backup_details(backup_name: str):
 @app.delete("/api/v1/backup/delete/{backup_name}")
 async def delete_backup(backup_name: str):
     """Usuń backup"""
-    return backup_service.delete_backup(backup_name)
+    result = backup_service.delete_backup(backup_name)
+    
+    # Send notification
+    if result.get("success"):
+        await notification_service.send_notification(
+            user_id="default_user",  # TODO: Get from auth
+            notification_type="backup_deleted",
+            severity="info",
+            title="🗑️ Backup usunięty",
+            message=f"Backup '{backup_name}' został pomyślnie usunięty",
+            metadata={"backup_name": backup_name}
+        )
+    
+    return result
 
 @app.post("/api/v1/backup/restore/{backup_name}")
 async def restore_backup(backup_name: str, new_cluster_name: str = None):
     """Przywróć klaster z backupu"""
     result = backup_service.restore_cluster_backup(backup_name, new_cluster_name)
+    
+    # Send notification based on result
+    if result.get("success"):
+        await notification_service.send_notification(
+            user_id="default_user",  # TODO: Get from auth
+            notification_type="backup_restored",
+            severity="success",
+            title="♻️ Backup przywrócony",
+            message=f"Klaster został pomyślnie przywrócony z backupu '{backup_name}'",
+            metadata={
+                "backup_name": backup_name,
+                "cluster": result.get("cluster_name", new_cluster_name)
+            }
+        )
+    else:
+        await notification_service.send_notification(
+            user_id="default_user",  # TODO: Get from auth
+            notification_type="backup_restore_error",
+            severity="error",
+            title="❌ Błąd przywracania backupu",
+            message=f"Nie udało się przywrócić klastra z backupu '{backup_name}': {result.get('error', 'Unknown error')}",
+            metadata={"backup_name": backup_name}
+        )
+    
     return result
 
 @app.get("/api/v1/backup/download/{backup_name}")
@@ -1886,6 +2156,20 @@ async def install_app(cluster_name: str, app_data: AppInstallRequest):
                     "namespace": app_data.namespace
                 }
             )
+            
+            # Send success notification
+            await notification_service.send_notification(
+                user_id="default_user",  # TODO: Get from auth
+                notification_type="operation",
+                title="✅ Aplikacja zainstalowana",
+                message=f"Aplikacja {app_data.app_name} została pomyślnie zainstalowana w klastrze {cluster_name}",
+                metadata={
+                    "cluster": cluster_name,
+                    "app_name": app_data.app_name,
+                    "operation_id": log_entry["id"]
+                },
+                severity="success"
+            )
         else:
             activity_log.update_operation_status(
                 operation_id=log_entry["id"],
@@ -1896,6 +2180,21 @@ async def install_app(cluster_name: str, app_data: AppInstallRequest):
                     "error": result.get("error", "Unknown error"),
                     "output": combined_output or result.get("error", "")
                 }
+            )
+            
+            # Send error notification
+            await notification_service.send_notification(
+                user_id="default_user",  # TODO: Get from auth
+                notification_type="operation",
+                title="❌ Błąd instalacji",
+                message=f"Nie udało się zainstalować aplikacji {app_data.app_name} w klastrze {cluster_name}",
+                metadata={
+                    "cluster": cluster_name,
+                    "app_name": app_data.app_name,
+                    "error": result.get("error", "Unknown error"),
+                    "operation_id": log_entry["id"]
+                },
+                severity="error"
             )
         
         return result
@@ -1944,6 +2243,16 @@ async def uninstall_app(cluster_name: str, app_name: str):
                 status="success",
                 metadata={"app_name": app_name}
             )
+            
+            # Send success notification
+            await notification_service.send_notification(
+                user_id="default_user",  # TODO: Get from auth
+                notification_type="app_uninstalled",
+                severity="info",
+                title="🗑️ Aplikacja odinstalowana",
+                message=f"Aplikacja '{app_name}' została odinstalowana z klastra '{cluster_name}'",
+                metadata={"cluster": cluster_name, "app_name": app_name}
+            )
         else:
             activity_log.log_operation(
                 operation_type="app_uninstall",
@@ -1951,6 +2260,16 @@ async def uninstall_app(cluster_name: str, app_name: str):
                 details=f"Błąd odinstalowania aplikacji: {app_name}",
                 status="error",
                 metadata={"app_name": app_name, "error": result.get("error", "Unknown error")}
+            )
+            
+            # Send error notification
+            await notification_service.send_notification(
+                user_id="default_user",  # TODO: Get from auth
+                notification_type="app_uninstall_error",
+                severity="error",
+                title="❌ Błąd odinstalowania aplikacji",
+                message=f"Nie udało się odinstalować '{app_name}' z klastra '{cluster_name}': {result.get('error', 'Unknown error')}",
+                metadata={"cluster": cluster_name, "app_name": app_name}
             )
         
         return result
@@ -1962,6 +2281,16 @@ async def uninstall_app(cluster_name: str, app_name: str):
             details=f"Wyjątek podczas odinstalowania: {app_name}",
             status="error",
             metadata={"app_name": app_name, "error": str(e)}
+        )
+        
+        # Send error notification
+        await notification_service.send_notification(
+            user_id="default_user",  # TODO: Get from auth
+            notification_type="app_uninstall_error",
+            severity="error",
+            title="❌ Błąd odinstalowania aplikacji",
+            message=f"Wystąpił błąd podczas odinstalowania '{app_name}' z klastra '{cluster_name}': {str(e)}",
+            metadata={"cluster": cluster_name, "app_name": app_name}
         )
         
         return {

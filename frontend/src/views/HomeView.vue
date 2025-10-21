@@ -73,20 +73,6 @@
             </div>
           </div>
 
-          <!-- Powiadomienia -->
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-100 dark:border-gray-700 hover:shadow-md transition-all">
-            <div class="flex items-start justify-between">
-              <div>
-                <p class="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Powiadomienia</p>
-                <p class="text-3xl font-bold text-gray-900 dark:text-white">{{ notificationsCount }}</p>
-              </div>
-              <div class="bg-amber-100 dark:bg-amber-900 p-3 rounded-lg">
-                <svg class="w-6 h-6 text-amber-600 dark:text-amber-400" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"></path>
-                </svg>
-              </div>
-            </div>
-          </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -606,8 +592,6 @@ const activeTasksCount = computed(() => {
   // Could add more: backups in progress, deployments, etc.
   return count
 })
-
-const notificationsCount = ref(5) // Placeholder - można dodać system powiadomień później
 
 // Helper functions for metadata display
 const hasAdditionalMetadata = () => {

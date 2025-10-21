@@ -1,5 +1,94 @@
 [
   {
+    "id": "monitoring_install_testpow_1761082215",
+    "timestamp": "2025-10-21T23:30:15.787710",
+    "operation_type": "monitoring_install",
+    "cluster_name": "testpow",
+    "details": "Zainstalowano Prometheus + Grafana",
+    "status": "success",
+    "metadata": {
+      "components": [
+        "prometheus",
+        "grafana"
+      ],
+      "output": "\nStack monitoringu zainstalowany pomy\u015blnie",
+      "prometheus_port": null,
+      "grafana_port": null
+    },
+    "updated_at": "2025-10-21T23:32:02.795711"
+  },
+  {
+    "id": "cluster_create_testpow_1761082121",
+    "timestamp": "2025-10-21T23:28:41.572586",
+    "operation_type": "cluster_create",
+    "cluster_name": "testpow",
+    "details": "Utworzono klaster Kind z 2 w\u0119z\u0142ami",
+    "status": "success",
+    "metadata": {
+      "provider": "kind",
+      "node_count": 2
+    }
+  },
+  {
+    "id": "monitoring_install_jebacz_1761077360",
+    "timestamp": "2025-10-21T22:09:20.014695",
+    "operation_type": "monitoring_install",
+    "cluster_name": "jebacz",
+    "details": "B\u0142\u0105d instalacji: Instalacja prometheus-community/prometheus nie powiod\u0142a si\u0119: Error: INSTALLATION FAILED: cannot re-use a name that is still in use\n",
+    "status": "error",
+    "metadata": {
+      "components": [
+        "prometheus",
+        "grafana"
+      ],
+      "error": "Instalacja prometheus-community/prometheus nie powiod\u0142a si\u0119: Error: INSTALLATION FAILED: cannot re-use a name that is still in use\n",
+      "output": "Instalacja prometheus-community/prometheus nie powiod\u0142a si\u0119: Error: INSTALLATION FAILED: cannot re-use a name that is still in use\n"
+    },
+    "updated_at": "2025-10-21T22:09:25.914402"
+  },
+  {
+    "id": "monitoring_install_jebacz_1761077259",
+    "timestamp": "2025-10-21T22:07:39.950727",
+    "operation_type": "monitoring_install",
+    "cluster_name": "jebacz",
+    "details": "Zainstalowano Prometheus + Grafana",
+    "status": "success",
+    "metadata": {
+      "components": [
+        "prometheus",
+        "grafana"
+      ],
+      "output": "\nStack monitoringu zainstalowany pomy\u015blnie",
+      "prometheus_port": null,
+      "grafana_port": null
+    },
+    "updated_at": "2025-10-21T22:09:07.842091"
+  },
+  {
+    "id": "cluster_create_jebacz_1761077152",
+    "timestamp": "2025-10-21T22:05:52.661764",
+    "operation_type": "cluster_create",
+    "cluster_name": "jebacz",
+    "details": "Utworzono klaster Kind z 2 w\u0119z\u0142ami",
+    "status": "success",
+    "metadata": {
+      "provider": "kind",
+      "node_count": 2
+    }
+  },
+  {
+    "id": "cluster_create_resss_1761076472",
+    "timestamp": "2025-10-21T21:54:32.005625",
+    "operation_type": "cluster_create",
+    "cluster_name": "resss",
+    "details": "Utworzono klaster Kind z 2 w\u0119z\u0142ami",
+    "status": "success",
+    "metadata": {
+      "provider": "kind",
+      "node_count": 2
+    }
+  },
+  {
     "id": "app_install_test2_1760991883",
     "timestamp": "2025-10-20T22:24:43.488388",
     "operation_type": "app_install",

@@ -3,6 +3,7 @@ import { RouterView, useRouter } from 'vue-router'
 import { useDarkMode } from './composables/useDarkMode'
 import { useAuthStore } from './stores/auth'
 import { useClustersStore } from './stores/clusters'
+import NotificationBell from './components/NotificationBell.vue'
 import { onMounted, onUnmounted, watch } from 'vue'
 
 const { initTheme, watchSystemTheme, isDark, toggleDarkMode } = useDarkMode()
@@ -106,7 +107,10 @@ watch(() => authStore.user, (newUser) => {
             </router-link>
           </nav>
           
-          <div class="flex items-center space-x-4">
+          <div class="flex items-center space-x-2">
+            <!-- Notification Bell -->
+            <NotificationBell />
+            
             <!-- Dark Mode Toggle -->
             <button 
               @click="toggleDarkMode" 
