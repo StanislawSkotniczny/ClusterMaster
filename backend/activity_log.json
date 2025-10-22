@@ -1,5 +1,16 @@
 [
   {
+    "id": "cluster_delete_jebacz_1761082902",
+    "timestamp": "2025-10-21T23:41:42.077100",
+    "operation_type": "cluster_delete",
+    "cluster_name": "jebacz",
+    "details": "Usuni\u0119to klaster KIND",
+    "status": "success",
+    "metadata": {
+      "provider": "kind"
+    }
+  },
+  {
     "id": "monitoring_install_testpow_1761082215",
     "timestamp": "2025-10-21T23:30:15.787710",
     "operation_type": "monitoring_install",

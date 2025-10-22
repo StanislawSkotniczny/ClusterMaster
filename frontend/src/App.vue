@@ -45,15 +45,15 @@ watch(() => authStore.user, (newUser) => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
+  <div class="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200 flex flex-col">
     <!-- Nagłówek - persistentny dla wszystkich widoków -->
     <header v-if="authStore.user" class="bg-white dark:bg-gray-800 shadow-sm sticky top-0 z-10 transition-colors duration-200">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <div class="px-4 sm:px-6 lg:px-8 py-4">
         <div class="flex justify-between items-center">
           <h1 class="text-2xl font-bold text-gray-900 dark:text-white">ClusterMaster</h1>
           
           <!-- Nawigacja -->
-          <nav class="hidden md:flex space-x-2">
+          <nav class="hidden md:flex space-x-2 flex-1 mx-8">
             <router-link 
               to="/" 
               class="flex items-center space-x-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-all"
@@ -107,7 +107,7 @@ watch(() => authStore.user, (newUser) => {
             </router-link>
           </nav>
           
-          <div class="flex items-center space-x-2">
+          <div class="flex items-center space-x-4">
             <!-- Notification Bell -->
             <NotificationBell />
             
@@ -135,11 +135,13 @@ watch(() => authStore.user, (newUser) => {
     </header>
 
     <!-- Główna zawartość - zmienia się między widokami -->
-    <RouterView />
+    <main class="flex-grow">
+      <RouterView />
+    </main>
 
     <!-- Footer - persistentny dla wszystkich widoków -->
-    <footer v-if="authStore.user" class="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 mt-12 transition-all">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <footer v-if="authStore.user" class="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 mt-auto transition-all">
+      <div class="px-4 sm:px-6 lg:px-8 py-6">
         <p class="text-center text-sm text-gray-600 dark:text-gray-400">
           © 2025 ClusterMaster. Wszystkie prawa zastrzeżone.
         </p>

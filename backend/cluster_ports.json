@@ -23,10 +23,6 @@
     "prometheus": 30140,
     "grafana": 30080
   },
-  "jebacz": {
-    "prometheus": 30210,
-    "grafana": 30150
-  },
   "testpow": {
     "prometheus": 30220,
     "grafana": 30160
