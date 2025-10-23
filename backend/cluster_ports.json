@@ -3,14 +3,6 @@
     "prometheus": 30100,
     "grafana": 30040
   },
-  "test2": {
-    "prometheus": 30090,
-    "grafana": 30030
-  },
-  "test122": {
-    "prometheus": 30110,
-    "grafana": 30050
-  },
   "nowyklasterek": {
     "prometheus": 30120,
     "grafana": 30060
@@ -19,12 +11,12 @@
     "prometheus": 30130,
     "grafana": 30070
   },
-  "resss": {
-    "prometheus": 30140,
-    "grafana": 30080
+  "klusterk3dtest": {
+    "prometheus": 30090,
+    "grafana": 30030
   },
-  "testpow": {
-    "prometheus": 30220,
-    "grafana": 30160
+  "testkindaaa": {
+    "prometheus": 30110,
+    "grafana": 30050
   }
 }

@@ -257,8 +257,7 @@ const markAsRead = async () => {
   isMarkingAsRead.value = true
   try {
     await notificationsStore.markAsRead(props.notification.id)
-    // Update local notification object
-    props.notification.read = true
+    closeModal()
   } catch (error) {
     console.error('Error marking as read:', error)
   } finally {

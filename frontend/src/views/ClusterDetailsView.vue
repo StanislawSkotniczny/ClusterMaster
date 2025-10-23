@@ -90,12 +90,30 @@
                 <p class="mt-1 text-sm text-gray-900 dark:text-gray-100">{{ clusterDetails.status }}</p>
               </div>
               <div>
+                <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Wersja Kubernetes</label>
+                <p class="mt-1 text-sm text-gray-900 dark:text-gray-100">{{ clusterDetails.kubernetes_version || 'N/A' }}</p>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Provider</label>
+                <p class="mt-1 text-sm text-gray-900 dark:text-gray-100 uppercase">{{ clusterDetails.provider || 'N/A' }}</p>
+              </div>
+              <div>
                 <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Liczba węzłów</label>
                 <p class="mt-1 text-sm text-gray-900 dark:text-gray-100">{{ clusterDetails.node_count || 'N/A' }}</p>
               </div>
               <div>
                 <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Kontekst</label>
                 <p class="mt-1 text-sm text-gray-900 dark:text-gray-100">{{ clusterDetails.context || 'N/A' }}</p>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Data utworzenia</label>
+                <p class="mt-1 text-sm text-gray-900 dark:text-gray-100">{{ clusterDetails.created_at || 'N/A' }}</p>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Endpoint API</label>
+                <p class="mt-1 text-sm text-gray-900 dark:text-gray-100 font-mono text-xs truncate" :title="clusterDetails.api_endpoint">
+                  {{ clusterDetails.api_endpoint || 'N/A' }}
+                </p>
               </div>
             </div>
           </div>
@@ -124,6 +142,61 @@
               </div>
             </div>
             <div v-else class="text-gray-500 dark:text-gray-400 text-sm">Brak danych o zasobach</div>
+          </div>
+
+          <!-- Nodes -->
+          <div class="bg-white dark:bg-gray-800 shadow-sm rounded-xl border border-gray-100 dark:border-gray-700 p-6">
+            <h2 class="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Węzły (Nodes)</h2>
+            <div v-if="clusterDetails.resources?.nodes && clusterDetails.resources.nodes.length > 0" class="space-y-3">
+              <div 
+                v-for="node in clusterDetails.resources.nodes" 
+                :key="node.name"
+                class="p-4 border border-gray-100 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900/20"
+              >
+                <div class="flex items-center justify-between mb-3">
+                  <div class="flex items-center space-x-3">
+                    <div class="flex-shrink-0">
+                      <div class="w-10 h-10 rounded-lg flex items-center justify-center"
+                           :class="node.role === 'control-plane' ? 'bg-purple-100 dark:bg-purple-900/50' : 'bg-blue-100 dark:bg-blue-900/50'">
+                        <svg v-if="node.role === 'control-plane'" class="w-5 h-5 text-purple-600 dark:text-purple-400" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"></path>
+                        </svg>
+                        <svg v-else class="w-5 h-5 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z"></path>
+                        </svg>
+                      </div>
+                    </div>
+                    <div>
+                      <p class="font-medium text-gray-900 dark:text-gray-100">{{ node.name }}</p>
+                      <div class="flex items-center space-x-2 mt-1">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
+                              :class="node.role === 'control-plane' ? 'bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-300' : 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-300'">
+                          {{ node.role === 'control-plane' ? 'Control Plane' : 'Worker' }}
+                        </span>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-300">
+                          {{ node.status || 'Ready' }}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="text-right">
+                    <div class="text-xs text-gray-500 dark:text-gray-400">CPU</div>
+                    <div class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ node.cpu_usage || 'N/A' }}</div>
+                  </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span class="text-gray-500 dark:text-gray-400">Memory:</span>
+                    <span class="ml-2 font-medium text-gray-900 dark:text-gray-100">{{ node.memory_usage || 'N/A' }}</span>
+                  </div>
+                  <div>
+                    <span class="text-gray-500 dark:text-gray-400">Memory %:</span>
+                    <span class="ml-2 font-medium text-gray-900 dark:text-gray-100">{{ node.memory_percent || 'N/A' }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="text-gray-500 dark:text-gray-400 text-sm">Brak danych o węzłach</div>
           </div>
 
           <!-- Applications -->
@@ -275,6 +348,70 @@
           <div class="bg-white dark:bg-gray-800 shadow-sm rounded-xl border border-gray-100 dark:border-gray-700 p-6">
             <h2 class="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Akcje</h2>
             <div class="space-y-3">
+              <!-- Stop Cluster (tylko k3d) -->
+              <button
+                v-if="clusterDetails.provider === 'k3d' && clusterDetails.status === 'ready'"
+                @click="stopCluster"
+                :disabled="actionInProgress"
+                class="w-full inline-flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+              >
+                <svg v-if="actionInProgress" class="animate-spin h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <svg v-else class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                Zatrzymaj klaster
+              </button>
+              
+              <!-- Start Cluster (tylko k3d, jeśli stopped) -->
+              <button
+                v-if="clusterDetails.provider === 'k3d' && clusterDetails.status !== 'ready'"
+                @click="startCluster"
+                :disabled="actionInProgress"
+                class="w-full inline-flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+              >
+                <svg v-if="actionInProgress" class="animate-spin h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <svg v-else class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                Uruchom klaster
+              </button>
+              
+              <!-- Restart Cluster (tylko k3d) -->
+              <button
+                v-if="clusterDetails.provider === 'k3d'"
+                @click="restartCluster"
+                :disabled="actionInProgress"
+                class="w-full inline-flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+              >
+                <svg v-if="actionInProgress" class="animate-spin h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <svg v-else class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                </svg>
+                Restartuj klaster
+              </button>
+              
+              <!-- Export Kubeconfig -->
+              <button
+                @click="exportKubeconfig"
+                :disabled="actionInProgress"
+                class="w-full inline-flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+              >
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+                Eksportuj kubeconfig
+              </button>
+              
               <router-link 
                 :to="`/backup`"
                 class="w-full inline-flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -483,6 +620,113 @@ const deleteCluster = async () => {
     router.push('/')
   } catch (err) {
     alert('Błąd podczas usuwania klastra: ' + (err as Error).message)
+  }
+}
+
+const actionInProgress = ref(false)
+
+const stopCluster = async () => {
+  if (!clusterDetails.value) return
+  
+  const confirmed = confirm(`Czy na pewno chcesz zatrzymać klaster "${clusterDetails.value.name}"?`)
+  if (!confirmed) return
+  
+  actionInProgress.value = true
+  try {
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+    const response = await fetch(`${baseUrl}/api/v1/local-cluster/${clusterName}/stop`, {
+      method: 'POST'
+    })
+    const data = await response.json()
+    
+    if (data.success) {
+      alert('Klaster został zatrzymany')
+      await refreshData()
+    } else {
+      alert('Błąd: ' + (data.error || 'Nieznany błąd'))
+    }
+  } catch (err) {
+    alert('Błąd podczas zatrzymywania klastra: ' + (err as Error).message)
+  } finally {
+    actionInProgress.value = false
+  }
+}
+
+const startCluster = async () => {
+  if (!clusterDetails.value) return
+  
+  actionInProgress.value = true
+  try {
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+    const response = await fetch(`${baseUrl}/api/v1/local-cluster/${clusterName}/start`, {
+      method: 'POST'
+    })
+    const data = await response.json()
+    
+    if (data.success) {
+      alert('Klaster został uruchomiony')
+      await refreshData()
+    } else {
+      alert('Błąd: ' + (data.error || 'Nieznany błąd'))
+    }
+  } catch (err) {
+    alert('Błąd podczas uruchamiania klastra: ' + (err as Error).message)
+  } finally {
+    actionInProgress.value = false
+  }
+}
+
+const restartCluster = async () => {
+  if (!clusterDetails.value) return
+  
+  const confirmed = confirm(`Czy na pewno chcesz zrestartować klaster "${clusterDetails.value.name}"?`)
+  if (!confirmed) return
+  
+  actionInProgress.value = true
+  try {
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+    const response = await fetch(`${baseUrl}/api/v1/local-cluster/${clusterName}/restart`, {
+      method: 'POST'
+    })
+    const data = await response.json()
+    
+    if (data.success) {
+      alert('Klaster został zrestartowany')
+      await refreshData()
+    } else {
+      alert('Błąd: ' + (data.error || 'Nieznany błąd'))
+    }
+  } catch (err) {
+    alert('Błąd podczas restartowania klastra: ' + (err as Error).message)
+  } finally {
+    actionInProgress.value = false
+  }
+}
+
+const exportKubeconfig = async () => {
+  if (!clusterDetails.value) return
+  
+  try {
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+    const response = await fetch(`${baseUrl}/api/v1/local-cluster/${clusterName}/kubeconfig`)
+    
+    if (response.ok) {
+      // Download file
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${clusterName}-kubeconfig.yaml`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } else {
+      const data = await response.json()
+      alert('Błąd: ' + (data.error || 'Nie udało się wyeksportować kubeconfig'))
+    }
+  } catch (err) {
+    alert('Błąd podczas eksportu kubeconfig: ' + (err as Error).message)
   }
 }
 

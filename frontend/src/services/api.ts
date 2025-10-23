@@ -21,6 +21,9 @@ export interface ClusterInfo {
     provider?: string  // 'kind' or 'k3d'
     node_count?: number
     context?: string
+    kubernetes_version?: string  // Wersja Kubernetes
+    created_at?: string  // Data utworzenia
+    api_endpoint?: string  // Endpoint API
     assigned_ports?: {
         prometheus?: number
         grafana?: number

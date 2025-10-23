@@ -1,5 +1,148 @@
 [
   {
+    "id": "cluster_create_testkindaaa_1761248527",
+    "timestamp": "2025-10-23T21:42:07.725252",
+    "operation_type": "cluster_create",
+    "cluster_name": "testkindaaa",
+    "details": "Utworzono klaster Kind z 4 w\u0119z\u0142ami",
+    "status": "success",
+    "metadata": {
+      "provider": "kind",
+      "node_count": 4
+    }
+  },
+  {
+    "id": "monitoring_uninstall_klusterk3dtest_1761248392",
+    "timestamp": "2025-10-23T21:39:52.185704",
+    "operation_type": "monitoring_uninstall",
+    "cluster_name": "klusterk3dtest",
+    "details": "Wyj\u0105tek podczas usuwania monitoringu",
+    "status": "error",
+    "metadata": {
+      "error": "'PortManager' object has no attribute 'release_ports'"
+    }
+  },
+  {
+    "id": "cluster_restart_klusterk3dtest_1761171014",
+    "timestamp": "2025-10-23T00:10:14.931525",
+    "operation_type": "cluster_restart",
+    "cluster_name": "klusterk3dtest",
+    "details": "Zrestartowano klaster k3d",
+    "status": "success",
+    "metadata": {
+      "provider": "k3d"
+    }
+  },
+  {
+    "id": "cluster_stop_klusterk3dtest_1761170917",
+    "timestamp": "2025-10-23T00:08:37.151380",
+    "operation_type": "cluster_stop",
+    "cluster_name": "klusterk3dtest",
+    "details": "Zatrzymano klaster k3d",
+    "status": "success",
+    "metadata": {
+      "provider": "k3d"
+    }
+  },
+  {
+    "id": "monitoring_install_klusterk3dtest_1761169164",
+    "timestamp": "2025-10-22T23:39:24.529203",
+    "operation_type": "monitoring_install",
+    "cluster_name": "klusterk3dtest",
+    "details": "Zainstalowano Prometheus + Grafana",
+    "status": "success",
+    "metadata": {
+      "components": [
+        "prometheus",
+        "grafana"
+      ],
+      "output": "\nStack monitoringu zainstalowany pomy\u015blnie",
+      "prometheus_port": null,
+      "grafana_port": null
+    },
+    "updated_at": "2025-10-22T23:40:53.208427"
+  },
+  {
+    "id": "cluster_create_klusterk3dtest_1761169135",
+    "timestamp": "2025-10-22T23:38:55.707336",
+    "operation_type": "cluster_create",
+    "cluster_name": "klusterk3dtest",
+    "details": "Utworzono klaster k3d z 2 w\u0119z\u0142ami",
+    "status": "success",
+    "metadata": {
+      "provider": "k3d",
+      "node_count": 2,
+      "agents": 1,
+      "servers": 1
+    }
+  },
+  {
+    "id": "cluster_delete_nowybackup_1761169073",
+    "timestamp": "2025-10-22T23:37:53.192802",
+    "operation_type": "cluster_delete",
+    "cluster_name": "nowybackup",
+    "details": "Usuni\u0119to klaster KIND",
+    "status": "success",
+    "metadata": {
+      "provider": "kind"
+    }
+  },
+  {
+    "id": "cluster_delete_test2_1761169060",
+    "timestamp": "2025-10-22T23:37:40.066096",
+    "operation_type": "cluster_delete",
+    "cluster_name": "test2",
+    "details": "Usuni\u0119to klaster KIND",
+    "status": "success",
+    "metadata": {
+      "provider": "kind"
+    }
+  },
+  {
+    "id": "cluster_delete_resss_1761169050",
+    "timestamp": "2025-10-22T23:37:30.820787",
+    "operation_type": "cluster_delete",
+    "cluster_name": "resss",
+    "details": "Usuni\u0119to klaster KIND",
+    "status": "success",
+    "metadata": {
+      "provider": "kind"
+    }
+  },
+  {
+    "id": "cluster_delete_resss_1761169036",
+    "timestamp": "2025-10-22T23:37:16.928745",
+    "operation_type": "cluster_delete",
+    "cluster_name": "resss",
+    "details": "Usuni\u0119to klaster KIND",
+    "status": "success",
+    "metadata": {
+      "provider": "kind"
+    }
+  },
+  {
+    "id": "cluster_delete_testpow_1761169026",
+    "timestamp": "2025-10-22T23:37:06.994017",
+    "operation_type": "cluster_delete",
+    "cluster_name": "testpow",
+    "details": "Usuni\u0119to klaster KIND",
+    "status": "success",
+    "metadata": {
+      "provider": "kind"
+    }
+  },
+  {
+    "id": "cluster_delete_test122_1761169008",
+    "timestamp": "2025-10-22T23:36:48.276143",
+    "operation_type": "cluster_delete",
+    "cluster_name": "test122",
+    "details": "Usuni\u0119to klaster K3D",
+    "status": "success",
+    "metadata": {
+      "provider": "k3d"
+    }
+  },
+  {
     "id": "cluster_delete_jebacz_1761082902",
     "timestamp": "2025-10-21T23:41:42.077100",
     "operation_type": "cluster_delete",

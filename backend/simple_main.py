@@ -229,26 +229,46 @@ def get_basic_node_info(cluster_name: str) -> dict:
         
         nodes_result = subprocess.run([
             "kubectl", "get", "nodes", "--context", context,
-            "-o", r"custom-columns=NAME:.metadata.name,STATUS:.status.conditions[-1].type,ROLES:.metadata.labels.node-role\.kubernetes\.io/control-plane",
-            "--no-headers"
+            "-o", "json"
         ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
         
         if nodes_result.returncode == 0:
-            lines = nodes_result.stdout.strip().split('\n')
+            import json
+            nodes_data = json.loads(nodes_result.stdout)
             nodes_info = []
-            for line in lines:
-                if line.strip():
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        nodes_info.append({
-                            "name": parts[0],
-                            "status": parts[1],
-                            "role": "control-plane" if len(parts) > 2 and parts[2] else "worker"
-                        })
+            
+            for item in nodes_data['items']:
+                node_name = item['metadata']['name']
+                
+                # Sprawdź status
+                status = "Unknown"
+                for condition in item['status'].get('conditions', []):
+                    if condition['type'] == 'Ready':
+                        status = "Ready" if condition['status'] == 'True' else "NotReady"
+                        break
+                
+                # Sprawdź rolę
+                labels = item['metadata'].get('labels', {})
+                role = "worker"
+                if 'node-role.kubernetes.io/control-plane' in labels:
+                    role = "control-plane"
+                elif 'node-role.kubernetes.io/master' in labels:
+                    role = "control-plane"
+                
+                nodes_info.append({
+                    "name": node_name,
+                    "status": status,
+                    "role": role,
+                    "cpu_usage": 0,
+                    "memory_usage": 0,
+                    "memory_percentage": 0
+                })
             
             return {
                 "node_count": len(nodes_info),
                 "nodes": nodes_info,
+                "cpu_usage": 0,  # Unknown
+                "memory_usage": 0,  # Unknown
                 "summary": f"{len(nodes_info)} wezlow",
                 "note": "Podstawowe informacje (uzyj 'kubectl describe nodes' dla wiecej)"
             }
@@ -257,7 +277,9 @@ def get_basic_node_info(cluster_name: str) -> dict:
     
     return {
         "error": "Nie mozna pobrac informacji o wezlach",
-        "node_count": 0
+        "node_count": 0,
+        "cpu_usage": 0,
+        "memory_usage": 0
     }
 
 def detect_cluster_provider(cluster_name: str) -> str:
@@ -300,7 +322,33 @@ def get_enhanced_node_info(cluster_name: str) -> dict:
         # Parse JSON response
         import json
         nodes_data = json.loads(nodes_result.stdout)
-        node_names = [item['metadata']['name'] for item in nodes_data['items']]
+        
+        nodes_info_list = []
+        for item in nodes_data['items']:
+            node_name = item['metadata']['name']
+            
+            # Sprawdź status
+            status = "Unknown"
+            for condition in item['status'].get('conditions', []):
+                if condition['type'] == 'Ready':
+                    status = "Ready" if condition['status'] == 'True' else "NotReady"
+                    break
+            
+            # Sprawdź rolę
+            labels = item['metadata'].get('labels', {})
+            role = "worker"
+            if 'node-role.kubernetes.io/control-plane' in labels:
+                role = "control-plane"
+            elif 'node-role.kubernetes.io/master' in labels:
+                role = "control-plane"
+            
+            nodes_info_list.append({
+                'name': node_name,
+                'role': role,
+                'status': status
+            })
+        
+        node_names = [node['name'] for node in nodes_info_list]
         
       
         if node_names:
@@ -324,13 +372,38 @@ def get_enhanced_node_info(cluster_name: str) -> dict:
                         }
         
         nodes_info = []
-        for node_name in node_names:
-            role = "control-plane" if "control-plane" in node_name else "worker"
+        total_cpu = 0.0
+        total_mem = 0.0
+        node_count = 0
+        
+        for node_data in nodes_info_list:
+            node_name = node_data['name']
+            role = node_data['role']
+            status = node_data['status']
             
             stats = stats_map.get(node_name, {})
+            
+            # Parse CPU percentage (remove % sign)
+            cpu_str = stats.get('cpu', '0%')
+            try:
+                cpu_val = float(cpu_str.replace('%', '').strip())
+                total_cpu += cpu_val
+                node_count += 1
+            except:
+                cpu_val = 0
+            
+            # Parse memory percentage
+            mem_percent_str = stats.get('memory_percent', '0%')
+            try:
+                mem_val = float(mem_percent_str.replace('%', '').strip())
+                total_mem += mem_val
+            except:
+                mem_val = 0
+            
             node_info = {
                 "name": node_name,
                 "role": role,
+                "status": status,
                 "cpu_usage": stats.get('cpu', 'N/A'),
                 "memory_usage": stats.get('memory', 'N/A'),
                 "memory_percent": stats.get('memory_percent', 'N/A'),
@@ -338,9 +411,15 @@ def get_enhanced_node_info(cluster_name: str) -> dict:
             }
             nodes_info.append(node_info)
         
+        # Calculate averages
+        avg_cpu = round(total_cpu / node_count, 1) if node_count > 0 else 0
+        avg_mem = round(total_mem / node_count, 1) if node_count > 0 else 0
+        
         return {
             "node_count": len(nodes_info),
             "nodes": nodes_info,
+            "cpu_usage": avg_cpu,  # Average CPU across all nodes
+            "memory_usage": avg_mem,  # Average memory across all nodes
             "summary": f"{len(nodes_info)} wezlow",
             "type": "docker_stats",
             "note": "Metryki z Docker (zywe dane CPU/RAM)"
@@ -417,6 +496,99 @@ async def get_cluster_details_async(cluster_name: str, include_resources: bool =
             if cluster_ports:
                 cluster_info["assigned_ports"] = cluster_ports
         
+        # Pobierz wersję Kubernetes
+        async def get_k8s_version():
+            try:
+                # Najpierw spróbuj pobrać wersję z węzłów (najprostsze i najniezawodniejsze)
+                nodes_result = await loop.run_in_executor(
+                    executor,
+                    lambda: subprocess.run([
+                        "kubectl", "get", "nodes", "-o", "json", "--context", f"{provider}-{cluster_name}"
+                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
+                )
+                
+                if nodes_result.returncode == 0:
+                    import json
+                    try:
+                        nodes_data = json.loads(nodes_result.stdout)
+                        if nodes_data.get('items') and len(nodes_data['items']) > 0:
+                            # Weź wersję z pierwszego węzła
+                            kubelet_version = nodes_data['items'][0]['status']['nodeInfo']['kubeletVersion']
+                            cluster_info["kubernetes_version"] = kubelet_version
+                            print(f"[get_k8s_version] Success: {kubelet_version}")
+                            return
+                    except Exception as parse_error:
+                        print(f"[get_k8s_version] Failed to parse nodes JSON: {parse_error}")
+                
+                # Fallback: kubectl version
+                print(f"[get_k8s_version] Trying kubectl version fallback...")
+                result = await loop.run_in_executor(
+                    executor,
+                    lambda: subprocess.run([
+                        "kubectl", "version", "--context", f"{provider}-{cluster_name}"
+                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
+                )
+                
+                if result.returncode == 0:
+                    # Parse text output dla wersji serwera
+                    import re
+                    for line in result.stdout.split('\n'):
+                        if 'Server Version' in line:
+                            match = re.search(r'v\d+\.\d+\.\d+[^\s,)"]*', line)
+                            if match:
+                                cluster_info["kubernetes_version"] = match.group(0)
+                                print(f"[get_k8s_version] Fallback success: {match.group(0)}")
+                                return
+                
+                print(f"[get_k8s_version] All methods failed")
+                
+            except Exception as e:
+                print(f"[get_k8s_version] Exception: {e}")
+        
+        # Pobierz endpoint API
+        async def get_api_endpoint():
+            try:
+                result = await loop.run_in_executor(
+                    executor,
+                    lambda: subprocess.run([
+                        "kubectl", "cluster-info", "--context", f"{provider}-{cluster_name}"
+                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3)
+                )
+                
+                if result.returncode == 0:
+                    # Parse: "Kubernetes control plane is running at https://0.0.0.0:xxxxx"
+                    for line in result.stdout.split('\n'):
+                        if 'control plane is running at' in line.lower():
+                            endpoint = line.split('at')[1].strip()
+                            cluster_info["api_endpoint"] = endpoint
+                            break
+            except Exception as e:
+                print(f"Error getting API endpoint: {e}")
+        
+        # Pobierz datę utworzenia (z Docker container)
+        async def get_creation_date():
+            try:
+                # Pobierz info o kontenerze klastra
+                result = await loop.run_in_executor(
+                    executor,
+                    lambda: subprocess.run([
+                        "docker", "inspect", f"{provider}-{cluster_name}-server-0",
+                        "--format", "{{.Created}}"
+                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=2)
+                )
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    # Parse ISO timestamp
+                    from datetime import datetime
+                    created_str = result.stdout.strip()
+                    try:
+                        created_dt = datetime.fromisoformat(created_str.replace('Z', '+00:00'))
+                        cluster_info["created_at"] = created_dt.strftime("%Y-%m-%d %H:%M:%S")
+                    except:
+                        cluster_info["created_at"] = created_str
+            except Exception as e:
+                print(f"Error getting creation date: {e}")
+        
         # Pobierz zasoby (opcjonalnie - najwolniejsze)
         async def get_resources():
             if include_resources:
@@ -430,7 +602,14 @@ async def get_cluster_details_async(cluster_name: str, include_resources: bool =
                     cluster_info["resources"] = get_basic_node_info(cluster_name)
         
         # Uruchom wszystkie operacje równolegle
-        tasks = [check_status(), check_monitoring(), get_ports()]
+        tasks = [
+            check_status(), 
+            check_monitoring(), 
+            get_ports(),
+            get_k8s_version(),
+            get_api_endpoint(),
+            get_creation_date()
+        ]
         if include_resources:
             tasks.append(get_resources())
         
@@ -1068,6 +1247,164 @@ async def delete_cluster(cluster_name: str):
         "cleanup": cleanup_result,
         "provider": provider
     }
+
+@app.post("/api/v1/local-cluster/{cluster_name}/stop")
+async def stop_cluster(cluster_name: str):
+    """Zatrzymaj klaster (tylko k3d, Kind nie obsługuje stop)"""
+    provider = detect_cluster_provider(cluster_name)
+    
+    if provider != "k3d":
+        return {
+            "error": "Stop/Start jest obsługiwany tylko dla klastrów k3d",
+            "provider": provider
+        }
+    
+    try:
+        result = subprocess.run([
+            "k3d", "cluster", "stop", cluster_name
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30)
+        
+        if result.returncode == 0:
+            activity_log.log_operation(
+                operation_type="cluster_stop",
+                cluster_name=cluster_name,
+                details=f"Zatrzymano klaster k3d",
+                status="success",
+                metadata={"provider": "k3d"}
+            )
+            
+            await notification_service.send_notification(
+                user_id="default_user",
+                notification_type="cluster_stopped",
+                severity="info",
+                title="⏸️ Klaster zatrzymany",
+                message=f"Klaster '{cluster_name}' został zatrzymany",
+                metadata={"cluster": cluster_name, "provider": "k3d"}
+            )
+            
+            return {"success": True, "message": f"Klaster {cluster_name} został zatrzymany"}
+        else:
+            return {"error": result.stderr, "success": False}
+    except Exception as e:
+        return {"error": str(e), "success": False}
+
+@app.post("/api/v1/local-cluster/{cluster_name}/start")
+async def start_cluster(cluster_name: str):
+    """Uruchom zatrzymany klaster (tylko k3d)"""
+    provider = detect_cluster_provider(cluster_name)
+    
+    if provider != "k3d":
+        return {
+            "error": "Stop/Start jest obsługiwany tylko dla klastrów k3d",
+            "provider": provider
+        }
+    
+    try:
+        result = subprocess.run([
+            "k3d", "cluster", "start", cluster_name
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=60)
+        
+        if result.returncode == 0:
+            activity_log.log_operation(
+                operation_type="cluster_start",
+                cluster_name=cluster_name,
+                details=f"Uruchomiono klaster k3d",
+                status="success",
+                metadata={"provider": "k3d"}
+            )
+            
+            await notification_service.send_notification(
+                user_id="default_user",
+                notification_type="cluster_started",
+                severity="success",
+                title="▶️ Klaster uruchomiony",
+                message=f"Klaster '{cluster_name}' został uruchomiony",
+                metadata={"cluster": cluster_name, "provider": "k3d"}
+            )
+            
+            return {"success": True, "message": f"Klaster {cluster_name} został uruchomiony"}
+        else:
+            return {"error": result.stderr, "success": False}
+    except Exception as e:
+        return {"error": str(e), "success": False}
+
+@app.post("/api/v1/local-cluster/{cluster_name}/restart")
+async def restart_cluster(cluster_name: str):
+    """Restart klastra (stop + start dla k3d, delete + create dla Kind)"""
+    provider = detect_cluster_provider(cluster_name)
+    
+    if provider == "k3d":
+        # Stop
+        stop_result = subprocess.run([
+            "k3d", "cluster", "stop", cluster_name
+        ], capture_output=True, text=True, timeout=30)
+        
+        if stop_result.returncode != 0:
+            return {"error": "Nie udało się zatrzymać klastra", "success": False}
+        
+        # Start
+        start_result = subprocess.run([
+            "k3d", "cluster", "start", cluster_name
+        ], capture_output=True, text=True, timeout=60)
+        
+        if start_result.returncode == 0:
+            activity_log.log_operation(
+                operation_type="cluster_restart",
+                cluster_name=cluster_name,
+                details=f"Zrestartowano klaster k3d",
+                status="success",
+                metadata={"provider": "k3d"}
+            )
+            
+            await notification_service.send_notification(
+                user_id="default_user",
+                notification_type="cluster_restarted",
+                severity="success",
+                title="🔄 Klaster zrestartowany",
+                message=f"Klaster '{cluster_name}' został zrestartowany",
+                metadata={"cluster": cluster_name, "provider": "k3d"}
+            )
+            
+            return {"success": True, "message": f"Klaster {cluster_name} został zrestartowany"}
+        else:
+            return {"error": start_result.stderr, "success": False}
+    else:
+        return {
+            "error": "Restart nie jest obsługiwany dla klastrów Kind (użyj delete + create)",
+            "provider": "kind",
+            "success": False
+        }
+
+@app.get("/api/v1/local-cluster/{cluster_name}/kubeconfig")
+async def export_kubeconfig(cluster_name: str):
+    """Eksportuj kubeconfig dla klastra"""
+    from fastapi.responses import Response
+    
+    provider = detect_cluster_provider(cluster_name)
+    
+    try:
+        if provider == "k3d":
+            result = subprocess.run([
+                "k3d", "kubeconfig", "get", cluster_name
+            ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
+        else:  # kind
+            result = subprocess.run([
+                "kind", "get", "kubeconfig", "--name", cluster_name
+            ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
+        
+        if result.returncode == 0:
+            # Return as downloadable file
+            return Response(
+                content=result.stdout,
+                media_type="application/x-yaml",
+                headers={
+                    "Content-Disposition": f"attachment; filename={cluster_name}-kubeconfig.yaml"
+                }
+            )
+        else:
+            return {"error": result.stderr, "success": False}
+    except Exception as e:
+        return {"error": str(e), "success": False}
 
 @app.get("/api/v1/local-cluster/{cluster_name}/status")
 async def get_cluster_status(cluster_name: str):
