@@ -216,10 +216,12 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { useClustersStore } from '@/stores/clusters'
 import { ApiService } from '@/services/api'
 import AppCard from '@/components/AppCard.vue'
 
+const route = useRoute()
 const clustersStore = useClustersStore()
 
 interface App {
@@ -542,6 +544,12 @@ onMounted(() => {
   // Use store clusters - will load if not already loaded
   if (clustersStore.clusters.length === 0) {
     clustersStore.fetchClusters()
+  }
+  
+  // Auto-select cluster from URL query parameter
+  const clusterFromQuery = route.query.cluster as string
+  if (clusterFromQuery) {
+    selectedCluster.value = clusterFromQuery
   }
 })
 </script>

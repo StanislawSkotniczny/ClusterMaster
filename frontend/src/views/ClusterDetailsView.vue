@@ -208,7 +208,7 @@
             <div class="flex justify-between items-center mb-4">
               <h2 class="text-lg font-medium text-gray-900 dark:text-gray-100">Zainstalowane aplikacje</h2>
               <router-link 
-                to="/apps"
+                :to="`/apps?cluster=${clusterName}`"
                 class="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-lg text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
               >
                 <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -260,7 +260,7 @@
               <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Rozpocznij od zainstalowania swojej pierwszej aplikacji</p>
               <div class="mt-6">
                 <router-link 
-                  to="/apps"
+                  :to="`/apps?cluster=${clusterName}`"
                   class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-lg text-white bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                 >
                   <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
