@@ -1906,6 +1906,15 @@ async def uninstall_monitoring_endpoint(cluster_name: str):
                 status="success"
             )
             
+            # Send notification
+            await notification_service.send_notification(
+                title="Monitoring odinstalowany",
+                message=f"Monitoring (Prometheus + Grafana) został usunięty z klastra '{cluster_name}'",
+                notification_type="monitoring_uninstalled",
+                severity="info",
+                metadata={"cluster": cluster_name}
+            )
+            
             return {
                 "success": True,
                 "message": "Monitoring został usunięty",
@@ -1928,6 +1937,15 @@ async def uninstall_monitoring_endpoint(cluster_name: str):
                 details="Błąd podczas usuwania monitoringu",
                 status="error",
                 metadata={"error": error_message}
+            )
+            
+            # Send error notification
+            await notification_service.send_notification(
+                title="Błąd odinstalowania monitoringu",
+                message=f"Nie udało się odinstalować monitoringu z klastra '{cluster_name}': {error_message}",
+                notification_type="monitoring_uninstall_error",
+                severity="error",
+                metadata={"cluster": cluster_name, "error": error_message}
             )
             
             return {
@@ -2961,6 +2979,15 @@ async def apply_cluster_scaling(cluster_name: str, scaling_config: dict):
                 metadata={"provider": "k3d", "final_agent_count": agent_count}
             )
             
+            # Send notification
+            await notification_service.send_notification(
+                title="Klaster przeskalowany",
+                message=f"Klaster '{cluster_name}' został przeskalowany do {agent_count} węzłów (k3d LIVE scaling)",
+                notification_type="cluster_scaled",
+                severity="success",
+                metadata={"cluster": cluster_name, "provider": "k3d", "nodes": agent_count}
+            )
+            
             return {
                 "success": True,
                 "message": f"✅ k3d cluster scaled to {agent_count} agent nodes (LIVE - no recreate!)",
@@ -3045,6 +3072,15 @@ async def apply_cluster_scaling(cluster_name: str, scaling_config: dict):
             metadata={"provider": "kind", "worker_nodes": worker_nodes, "total_nodes": node_count}
         )
         
+        # Send notification
+        await notification_service.send_notification(
+            title="Klaster przeskalowany",
+            message=f"Klaster '{cluster_name}' został przeskalowany do {worker_nodes} węzłów worker (Kind - klaster odtworzony)",
+            notification_type="cluster_scaled",
+            severity="warning",
+            metadata={"cluster": cluster_name, "provider": "kind", "nodes": worker_nodes}
+        )
+        
         return {
             "success": True,
             "message": f"Cluster successfully scaled to {worker_nodes} worker nodes",
@@ -3062,6 +3098,15 @@ async def apply_cluster_scaling(cluster_name: str, scaling_config: dict):
             status="error",
             details=f"Błąd skalowania klastra: {error_msg}",
             metadata={"error": error_msg}
+        )
+        
+        # Send error notification
+        await notification_service.send_notification(
+            title="Błąd skalowania klastra",
+            message=f"Nie udało się przeskalować klastra '{cluster_name}': {error_msg}",
+            notification_type="cluster_scale_error",
+            severity="error",
+            metadata={"cluster": cluster_name, "error": error_msg}
         )
         
         return {

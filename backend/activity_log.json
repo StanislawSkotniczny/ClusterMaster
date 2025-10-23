@@ -1,5 +1,43 @@
 [
   {
+    "id": "cluster_start_klusterk3dtest_1761250866",
+    "timestamp": "2025-10-23T22:21:06.879852",
+    "operation_type": "cluster_start",
+    "cluster_name": "klusterk3dtest",
+    "details": "Uruchomiono klaster k3d",
+    "status": "success",
+    "metadata": {
+      "provider": "k3d"
+    }
+  },
+  {
+    "id": "cluster_stop_klusterk3dtest_1761250816",
+    "timestamp": "2025-10-23T22:20:16.428981",
+    "operation_type": "cluster_stop",
+    "cluster_name": "klusterk3dtest",
+    "details": "Zatrzymano klaster k3d",
+    "status": "success",
+    "metadata": {
+      "provider": "k3d"
+    }
+  },
+  {
+    "id": "cluster_scale_klusterk3dtest_1761249640",
+    "timestamp": "2025-10-23T22:00:40.180676",
+    "operation_type": "cluster_scale",
+    "cluster_name": "klusterk3dtest",
+    "details": "Przeskalowano klaster k3d do 0 w\u0119z\u0142\u00f3w agent (LIVE)",
+    "status": "success",
+    "metadata": {
+      "provider": "k3d",
+      "worker_nodes": 1,
+      "cpu_per_node": 2,
+      "ram_per_node": 2048,
+      "final_agent_count": 0
+    },
+    "updated_at": "2025-10-23T22:00:49.230971"
+  },
+  {
     "id": "cluster_create_testkindaaa_1761248527",
     "timestamp": "2025-10-23T21:42:07.725252",
     "operation_type": "cluster_create",
