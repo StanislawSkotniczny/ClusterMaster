@@ -1248,6 +1248,65 @@ async def delete_cluster(cluster_name: str):
         "provider": provider
     }
 
+@app.get("/api/v1/local-cluster/{cluster_name}/nodes/{node_name}/logs")
+async def get_node_logs(cluster_name: str, node_name: str):
+    """Pobierz logi i szczegóły węzła"""
+    try:
+        provider = detect_cluster_provider(cluster_name)
+        context = f"{provider}-{cluster_name}"
+        
+        # Pobierz szczegóły węzła (describe)
+        describe_result = subprocess.run([
+            "kubectl", "describe", "node", node_name, "--context", context
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
+        
+        node_details = describe_result.stdout if describe_result.returncode == 0 else "Failed to get node details"
+        
+        # Pobierz eventy dla węzła
+        events_result = subprocess.run([
+            "kubectl", "get", "events", "--all-namespaces",
+            "--field-selector", f"involvedObject.name={node_name}",
+            "--context", context,
+            "--sort-by", ".lastTimestamp"
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
+        
+        events = events_result.stdout if events_result.returncode == 0 else "No events found"
+        
+        # Pobierz pody uruchomione na węźle
+        pods_result = subprocess.run([
+            "kubectl", "get", "pods", "--all-namespaces",
+            "--field-selector", f"spec.nodeName={node_name}",
+            "--context", context,
+            "-o", "wide"
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
+        
+        pods = pods_result.stdout if pods_result.returncode == 0 else "No pods found"
+        
+        # Pobierz conditions węzła
+        conditions_result = subprocess.run([
+            "kubectl", "get", "node", node_name,
+            "--context", context,
+            "-o", "jsonpath={.status.conditions[*].type}:{.status.conditions[*].status}"
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
+        
+        conditions = conditions_result.stdout if conditions_result.returncode == 0 else "Unknown"
+        
+        return {
+            "success": True,
+            "node_name": node_name,
+            "cluster_name": cluster_name,
+            "provider": provider,
+            "describe": node_details,
+            "events": events,
+            "pods": pods,
+            "conditions": conditions
+        }
+        
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Request timeout while fetching node logs")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching node logs: {str(e)}")
+
 @app.post("/api/v1/local-cluster/{cluster_name}/stop")
 async def stop_cluster(cluster_name: str):
     """Zatrzymaj klaster (tylko k3d, Kind nie obsługuje stop)"""

@@ -151,7 +151,8 @@
               <div 
                 v-for="node in clusterDetails.resources.nodes" 
                 :key="node.name"
-                class="p-4 border border-gray-100 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900/20"
+                @click="openNodeLogs(node.name)"
+                class="p-4 border border-gray-100 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900/20 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors cursor-pointer group"
               >
                 <div class="flex items-center justify-between mb-3">
                   <div class="flex items-center space-x-3">
@@ -167,7 +168,10 @@
                       </div>
                     </div>
                     <div>
-                      <p class="font-medium text-gray-900 dark:text-gray-100">{{ node.name }}</p>
+                      <p class="font-medium text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                        {{ node.name }}
+                        <span class="ml-2 text-xs text-gray-400 dark:text-gray-500">(kliknij aby zobaczyć logi)</span>
+                      </p>
                       <div class="flex items-center space-x-2 mt-1">
                         <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
                               :class="node.role === 'control-plane' ? 'bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-300' : 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-300'">
@@ -435,6 +439,14 @@
         </div>
       </div>
     </div>
+    
+    <!-- Node Logs Modal -->
+    <NodeLogsModal
+      :is-open="isNodeLogsModalOpen"
+      :cluster-name="clusterName"
+      :node-name="selectedNodeName"
+      @close="closeNodeLogsModal"
+    />
   </main>
 </template>
 
@@ -444,6 +456,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { ApiService } from '@/services/api'
 import type { ClusterInfo } from '@/services/api'
 import { useClustersStore } from '@/stores/clusters'
+import NodeLogsModal from '@/components/NodeLogsModal.vue'
 
 const clustersStore = useClustersStore()
 
@@ -457,6 +470,10 @@ const loading = ref(true)
 const refreshing = ref(false)
 const error = ref('')
 const clusterDetails = ref<ClusterInfo | null>(null)
+
+// Node logs modal
+const isNodeLogsModalOpen = ref(false)
+const selectedNodeName = ref('')
 
 // Real data for installed apps
 const installedApps = ref<Array<{ name: string; namespace: string; icon: string; status?: string; chart?: string; app_version?: string; revision?: string }>>([])
@@ -701,6 +718,16 @@ const restartCluster = async () => {
   } finally {
     actionInProgress.value = false
   }
+}
+
+const openNodeLogs = (nodeName: string) => {
+  selectedNodeName.value = nodeName
+  isNodeLogsModalOpen.value = true
+}
+
+const closeNodeLogsModal = () => {
+  isNodeLogsModalOpen.value = false
+  selectedNodeName.value = ''
 }
 
 const exportKubeconfig = async () => {
