@@ -64,3 +64,12 @@ node_modules/
 .DS_Store
 Thumbs.db
 backend/__pycache__/simple_main.cpython-313.pyc
+backend/__pycache__/simple_main.cpython-313.pyc
+backend/app/__pycache__/__init__.cpython-313.pyc
+backend/__pycache__/simple_main.cpython-313.pyc
+backend/app/services/__pycache__/app_service.cpython-313.pyc
+backend/app/services/__pycache__/port_manager.cpython-313.pyc
+backend/app/services/__pycache__/k3d_service.cpython-313.pyc
+backend/app/services/__pycache__/helm_service.cpython-313.pyc
+backend/app/services/__pycache__/backup_service.cpython-313.pyc
+backend/app/services/__pycache__/app_service.cpython-313.pyc

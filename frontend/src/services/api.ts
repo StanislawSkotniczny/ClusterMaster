@@ -353,3 +353,5 @@ export class ApiService {
         return this.request(`/activity-log/${clusterName}?limit=${limit}`)
     }
 }
+
+export default ApiService

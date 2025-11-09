@@ -456,14 +456,19 @@ import { useRouter, useRoute } from 'vue-router'
 import { ApiService } from '@/services/api'
 import type { ClusterInfo } from '@/services/api'
 import { useClustersStore } from '@/stores/clusters'
+import { useAwsStore } from '@/stores/aws'
 import NodeLogsModal from '@/components/NodeLogsModal.vue'
 
 const clustersStore = useClustersStore()
+const awsStore = useAwsStore()
 
 // Router
 const route = useRoute()
 const router = useRouter()
 const clusterName = route.params.name as string
+
+// Determine cluster type from query params
+const isEksCluster = computed(() => route.query.provider === 'eks')
 
 // Reactive data
 const loading = ref(true)
@@ -506,21 +511,27 @@ const loadClusterDetails = async () => {
     loading.value = true
     error.value = ''
     
-    // Wait for store to load if empty
-    if (clustersStore.clusters.length === 0) {
-      await clustersStore.fetchClusters()
+    if (isEksCluster.value) {
+      // Load EKS cluster details
+      await loadEksClusterDetails()
+    } else {
+      // Load local cluster details
+      // Wait for store to load if empty
+      if (clustersStore.clusters.length === 0) {
+        await clustersStore.fetchClusters()
+      }
+      
+      // Get cluster from store
+      const cluster = clustersStore.getClusterByName(clusterName)
+      
+      if (!cluster) {
+        error.value = `Klaster "${clusterName}" nie został znaleziony`
+        return
+      }
+      
+      // Assign cluster data directly - no need for toRaw
+      clusterDetails.value = { ...cluster }
     }
-    
-    // Get cluster from store
-    const cluster = clustersStore.getClusterByName(clusterName)
-    
-    if (!cluster) {
-      error.value = `Klaster "${clusterName}" nie został znaleziony`
-      return
-    }
-    
-    // Assign cluster data directly - no need for toRaw
-    clusterDetails.value = { ...cluster }
     
     // Load additional data
     await loadInstalledApps()
@@ -533,20 +544,92 @@ const loadClusterDetails = async () => {
   }
 }
 
+const loadEksClusterDetails = async () => {
+  try {
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+    
+    // Get AWS credentials from store
+    if (!awsStore.hasCredentials) {
+      error.value = 'Brak poświadczeń AWS. Zaloguj się ponownie w HomeView.'
+      router.push('/')
+      return
+    }
+    
+    const response = await fetch(`${baseUrl}/api/v1/eks-cluster/${clusterName}/details`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        region: awsStore.credentials!.region,
+        aws_access_key: awsStore.credentials!.accessKey,
+        aws_secret_key: awsStore.credentials!.secretKey
+      })
+    })
+    
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.detail || 'Failed to load EKS cluster details')
+    }
+    
+    const data = await response.json()
+    
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to load EKS cluster details')
+    }
+    
+    // Map EKS data to ClusterInfo format
+    clusterDetails.value = {
+      name: data.name,
+      status: data.status,
+      provider: 'eks',
+      kubernetes_version: data.kubernetes_version,
+      node_count: data.node_count,
+      api_endpoint: data.api_endpoint,
+      created_at: data.created_at,
+      context: data.context,
+      resources: data.resources,
+      monitoring: data.monitoring,
+      assigned_ports: {}
+    } as ClusterInfo
+    
+  } catch (err) {
+    console.error('Error loading EKS cluster details:', err)
+    throw err
+  }
+}
+
 const loadInstalledApps = async () => {
   try {
-    const result = await ApiService.getInstalledApps(clusterName)
-    if (result.success) {
-      // Map Helm releases to our app format
-      installedApps.value = result.apps.map((app: Record<string, unknown>) => ({
-        name: app.name as string || 'Unknown',
-        namespace: app.namespace as string || 'default',
-        icon: getAppIcon(app.name as string, app.chart as string),
-        status: app.status as string || 'unknown',
-        chart: app.chart as string || '',
-        app_version: app.app_version as string || '',
-        revision: app.revision as string || '1'
-      }))
+    if (isEksCluster.value) {
+      // For EKS, we'll use kubectl via backend API
+      // For now, using same endpoint but with EKS context
+      const result = await ApiService.getInstalledApps(clusterName)
+      if (result.success) {
+        installedApps.value = result.apps.map((app: Record<string, unknown>) => ({
+          name: app.name as string || 'Unknown',
+          namespace: app.namespace as string || 'default',
+          icon: getAppIcon(app.name as string, app.chart as string),
+          status: app.status as string || 'unknown',
+          chart: app.chart as string || '',
+          app_version: app.app_version as string || '',
+          revision: app.revision as string || '1'
+        }))
+      }
+    } else {
+      // Local cluster
+      const result = await ApiService.getInstalledApps(clusterName)
+      if (result.success) {
+        installedApps.value = result.apps.map((app: Record<string, unknown>) => ({
+          name: app.name as string || 'Unknown',
+          namespace: app.namespace as string || 'default',
+          icon: getAppIcon(app.name as string, app.chart as string),
+          status: app.status as string || 'unknown',
+          chart: app.chart as string || '',
+          app_version: app.app_version as string || '',
+          revision: app.revision as string || '1'
+        }))
+      }
     }
   } catch (err) {
     console.error('Error loading installed apps:', err)
@@ -629,11 +712,69 @@ const goToScaling = () => {
 const deleteCluster = async () => {
   if (!clusterDetails.value) return
   
-  const confirmed = confirm(`Czy na pewno chcesz usunąć klaster "${clusterDetails.value.name}"?`)
+  // Different confirmation messages for EKS vs local
+  let confirmMessage = ''
+  if (isEksCluster.value) {
+    confirmMessage = `🗑️ Usuwanie klastra EKS "${clusterDetails.value.name}" z AWS!\n\n` +
+                    `Terraform destroy usunie WSZYSTKIE zasoby:\n` +
+                    `✓ Node Groups\n` +
+                    `✓ Klaster EKS\n` +
+                    `✓ VPC i Subnety\n` +
+                    `✓ Internet Gateway\n` +
+                    `✓ IAM Roles i Policies\n\n` +
+                    `⏱️ Proces może zająć 10-15 minut.\n\n` +
+                    `Czy na pewno chcesz kontynuować?`
+  } else {
+    confirmMessage = `Czy na pewno chcesz usunąć klaster "${clusterDetails.value.name}"?`
+  }
+  
+  const confirmed = confirm(confirmMessage)
   if (!confirmed) return
   
   try {
-    await ApiService.deleteCluster(clusterDetails.value.name)
+    if (isEksCluster.value) {
+      // Delete EKS cluster
+      if (!awsStore.hasCredentials) {
+        alert('Brak poświadczeń AWS')
+        return
+      }
+      
+      // Show progress message
+      alert('🗑️ Rozpoczęto usuwanie klastra EKS...\n\nProces może zająć 5-10 minut.\nSposób będzie monitorować postęp w konsoli backendu.')
+      
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+      const response = await fetch(`${baseUrl}/api/v1/eks-cluster/${clusterDetails.value.name}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          region: awsStore.credentials!.region,
+          aws_access_key: awsStore.credentials!.accessKey,
+          aws_secret_key: awsStore.credentials!.secretKey
+        })
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.detail || 'Failed to delete EKS cluster')
+      }
+      
+      const data = await response.json()
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to delete EKS cluster')
+      }
+      
+      let resultMessage = '✅ ' + data.message
+      if (data.warning) {
+        resultMessage += '\n\n⚠️ ' + data.warning
+      }
+      alert(resultMessage)
+    } else {
+      // Delete local cluster
+      await ApiService.deleteCluster(clusterDetails.value.name)
+    }
+    
     router.push('/')
   } catch (err) {
     alert('Błąd podczas usuwania klastra: ' + (err as Error).message)

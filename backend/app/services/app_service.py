@@ -13,8 +13,23 @@ class AppService:
         self._ensure_helm_repos()
     
     def _get_cluster_context(self, cluster_name: str) -> str:
-        """Get the correct kube-context for the cluster (kind- or k3d-)"""
+        """Get the correct kube-context for the cluster (kind-, k3d-, or EKS)"""
         try:
+            # Check if it's an EKS cluster (check kubeconfig for EKS ARN)
+            result = subprocess.run(
+                ["kubectl", "config", "get-contexts", "-o", "name"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode == 0:
+                contexts = result.stdout.strip().split('\n')
+                # Look for EKS context (contains cluster name and looks like ARN)
+                for context in contexts:
+                    if cluster_name in context and ('arn:aws:eks' in context or 'eks' in context.lower()):
+                        return context
+            
             # Check if it's a k3d cluster
             result = subprocess.run(
                 ["k3d", "cluster", "list", "--output", "json"],

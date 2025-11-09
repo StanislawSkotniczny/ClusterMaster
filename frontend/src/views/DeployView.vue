@@ -90,71 +90,219 @@
               </div>
             </div>
 
-            <div v-if="form.provider === 'aws'" class="space-y-4 pt-4">
-              <h3 class="text-lg font-medium text-gray-800 dark:text-gray-200 mb-4 border-t border-gray-100 dark:border-gray-700 pt-4">Konfiguracja AWS</h3>
+            <div v-if="form.provider === 'aws'" class="space-y-6 pt-4">
+              <h3 class="text-lg font-medium text-gray-800 dark:text-gray-200 mb-4 border-t border-gray-100 dark:border-gray-700 pt-4">
+                ⚙️ Konfiguracja AWS EKS
+              </h3>
               
-              <div class="grid grid-cols-2 gap-4">
-                <div>
-                  <label for="awsRegion" class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Region AWS</label>
-                  <input
-                    id="awsRegion"
-                    v-model="form.awsRegion"
-                    type="text"
-                    placeholder="np. eu-central-1"
-                    class="form-input w-full rounded-md bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:border-blue-500 focus:ring focus:ring-blue-200 dark:focus:ring-blue-800"
-                    required
-                  />
+              <!-- Cluster Configuration -->
+              <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 space-y-4">
+                <h4 class="font-semibold text-gray-700 dark:text-gray-300 flex items-center">
+                  <span class="mr-2">🎯</span> Cluster configuration
+                </h4>
+                
+                <div class="grid grid-cols-2 gap-4">
+                  <div>
+                    <label for="awsRegion" class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                      Region <span class="text-red-500">*</span>
+                    </label>
+                    <select
+                      id="awsRegion"
+                      v-model="form.awsRegion"
+                      class="form-input w-full rounded-md bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:border-blue-500 focus:ring focus:ring-blue-200 dark:focus:ring-blue-800"
+                      required
+                    >
+                      <option value="">— wybierz region —</option>
+                      <option value="us-east-1">US East (N. Virginia)</option>
+                      <option value="us-west-2">US West (Oregon)</option>
+                      <option value="eu-west-1">EU (Ireland)</option>
+                      <option value="eu-central-1">EU (Frankfurt)</option>
+                      <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label for="k8sVersion" class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                      Kubernetes version <span class="text-red-500">*</span>
+                    </label>
+                    <select
+                      id="k8sVersion"
+                      v-model="form.k8sVersion"
+                      class="form-input w-full rounded-md bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:border-blue-500 focus:ring focus:ring-blue-200 dark:focus:ring-blue-800"
+                      required
+                    >
+                      <option value="1.28">1.28</option>
+                      <option value="1.29">1.29</option>
+                      <option value="1.30">1.30 (recommended)</option>
+                      <option value="1.31">1.31 (latest)</option>
+                    </select>
+                  </div>
                 </div>
+              </div>
+
+              <!-- Networking -->
+              <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 space-y-4">
+                <h4 class="font-semibold text-gray-700 dark:text-gray-300 flex items-center">
+                  <span class="mr-2">🌐</span> Networking
+                </h4>
                 
                 <div>
-                  <label for="vpcCidr" class="block text-gray-700 dark:text-gray-300 font-medium mb-2">CIDR dla VPC</label>
+                  <label for="vpcCidr" class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                    VPC CIDR block <span class="text-red-500">*</span>
+                  </label>
                   <input
                     id="vpcCidr"
                     v-model="form.vpcCidr"
                     type="text"
                     placeholder="10.0.0.0/16"
-                    class="form-input w-full rounded-md bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:border-blue-500 focus:ring focus:ring-blue-200 dark:focus:ring-blue-800"
+                    class="form-input w-full rounded-md bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:border-blue-500 focus:ring focus:ring-blue-200 dark:focus:ring-blue-800"
                     required
                   />
+                  <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Recommend using /16 for production clusters
+                  </p>
                 </div>
               </div>
-              
-              <div>
-                <label for="instanceType" class="block text-gray-700 dark:text-gray-300 font-medium mb-2">Typ instancji EC2</label>
-                <select 
-                  id="instanceType" 
-                  v-model="form.instanceType" 
-                  class="form-input w-full rounded-md bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:border-blue-500 focus:ring focus:ring-blue-200 dark:focus:ring-blue-800" 
-                  required
-                >
-                  <option value="">— wybierz typ —</option>
-                  <option value="t3.small" class="py-1">t3.small (1 CPU, 2 GB RAM)</option>
-                  <option value="t3.medium" class="py-1">t3.medium (2 CPU, 4 GB RAM)</option>
-                  <option value="m5.large" class="py-1">m5.large (2 CPU, 8 GB RAM)</option>
-                  <option value="m5.xlarge" class="py-1">m5.xlarge (4 CPU, 16 GB RAM)</option>
-                </select>
-              </div>
-              
-              <div class="grid grid-cols-2 gap-4">
-                <div>
-                  <label for="awsAccessKey" class="block text-gray-700 dark:text-gray-300 font-medium mb-2">AWS Access Key ID</label>
-                  <input
-                    id="awsAccessKey"
-                    v-model="form.awsAccessKey"
-                    type="text"
-                    class="form-input w-full rounded-md bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:border-blue-500 focus:ring focus:ring-blue-200 dark:focus:ring-blue-800"
-                    required
-                  />
+
+              <!-- Node Group Configuration -->
+              <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 space-y-4">
+                <h4 class="font-semibold text-gray-700 dark:text-gray-300 flex items-center">
+                  <span class="mr-2">🖥️</span> Node group configuration
+                </h4>
+                
+                <div class="grid grid-cols-2 gap-4">
+                  <div>
+                    <label for="instanceType" class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                      Instance type <span class="text-red-500">*</span>
+                    </label>
+                    <select 
+                      id="instanceType" 
+                      v-model="form.instanceType" 
+                      class="form-input w-full rounded-md bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:border-blue-500 focus:ring focus:ring-blue-200 dark:focus:ring-blue-800" 
+                      required
+                    >
+                      <option value="">— wybierz typ —</option>
+                      <option value="t3.small">t3.small (2 vCPU, 2 GB RAM) - ~$15/mo</option>
+                      <option value="t3.medium">t3.medium (2 vCPU, 4 GB RAM) - ~$30/mo</option>
+                      <option value="t3.large">t3.large (2 vCPU, 8 GB RAM) - ~$60/mo</option>
+                      <option value="m5.large">m5.large (2 vCPU, 8 GB RAM) - ~$70/mo</option>
+                      <option value="m5.xlarge">m5.xlarge (4 vCPU, 16 GB RAM) - ~$140/mo</option>
+                      <option value="m5.2xlarge">m5.2xlarge (8 vCPU, 32 GB RAM) - ~$280/mo</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label for="diskSize" class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                      Disk size (GB) <span class="text-red-500">*</span>
+                    </label>
+                    <input
+                      id="diskSize"
+                      v-model.number="form.diskSize"
+                      type="number"
+                      min="20"
+                      max="500"
+                      placeholder="20"
+                      class="form-input w-full rounded-md bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:border-blue-500 focus:ring focus:ring-blue-200 dark:focus:ring-blue-800"
+                      required
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label for="awsSecretKey" class="block text-gray-700 dark:text-gray-300 font-medium mb-2">AWS Secret Access Key</label>
-                  <input
-                    id="awsSecretKey"
-                    v-model="form.awsSecretKey"
-                    type="password"
-                    class="form-input w-full rounded-md bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:border-blue-500 focus:ring focus:ring-blue-200 dark:focus:ring-blue-800"
-                    required
-                  />
+
+                <div class="grid grid-cols-3 gap-4">
+                  <div>
+                    <label for="minNodes" class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                      Min nodes <span class="text-red-500">*</span>
+                    </label>
+                    <input
+                      id="minNodes"
+                      v-model.number="form.minNodes"
+                      type="number"
+                      min="1"
+                      class="form-input w-full rounded-md bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:border-blue-500 focus:ring focus:ring-blue-200 dark:focus:ring-blue-800"
+                      required
+                    />
+                  </div>
+                  
+                  <div>
+                    <label for="maxNodes" class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                      Max nodes <span class="text-red-500">*</span>
+                    </label>
+                    <input
+                      id="maxNodes"
+                      v-model.number="form.maxNodes"
+                      type="number"
+                      min="1"
+                      class="form-input w-full rounded-md bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:border-blue-500 focus:ring focus:ring-blue-200 dark:focus:ring-blue-800"
+                      required
+                    />
+                  </div>
+                  
+                  <div>
+                    <label for="desiredNodes" class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                      Desired nodes <span class="text-red-500">*</span>
+                    </label>
+                    <input
+                      id="desiredNodes"
+                      v-model.number="form.nodeCount"
+                      type="number"
+                      min="1"
+                      class="form-input w-full rounded-md bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:border-blue-500 focus:ring focus:ring-blue-200 dark:focus:ring-blue-800"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded p-3">
+                  <div class="flex items-start text-xs text-blue-800 dark:text-blue-300">
+                    <span class="mr-2">ℹ️</span>
+                    <div>
+                      <strong>Auto Scaling:</strong> The node group will automatically scale between min and max nodes based on resource demand.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- AWS Credentials -->
+              <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 space-y-4">
+                <h4 class="font-semibold text-gray-700 dark:text-gray-300 flex items-center">
+                  <span class="mr-2">🔑</span> AWS Credentials
+                </h4>
+                
+                <div class="grid grid-cols-2 gap-4">
+                  <div>
+                    <label for="awsAccessKey" class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                      AWS Access Key ID <span class="text-red-500">*</span>
+                    </label>
+                    <input
+                      id="awsAccessKey"
+                      v-model="form.awsAccessKey"
+                      type="text"
+                      placeholder="AKIA..."
+                      class="form-input w-full rounded-md bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:border-blue-500 focus:ring focus:ring-blue-200 dark:focus:ring-blue-800"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label for="awsSecretKey" class="block text-gray-700 dark:text-gray-300 font-medium mb-2">
+                      AWS Secret Access Key <span class="text-red-500">*</span>
+                    </label>
+                    <input
+                      id="awsSecretKey"
+                      v-model="form.awsSecretKey"
+                      type="password"
+                      class="form-input w-full rounded-md bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:border-blue-500 focus:ring focus:ring-blue-200 dark:focus:ring-blue-800"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded p-3">
+                  <div class="flex items-start text-xs text-amber-800 dark:text-amber-300">
+                    <span class="mr-2">⚠️</span>
+                    <div>
+                      <strong>Security Note:</strong> Credentials are used only for cluster creation and not stored permanently.
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -260,7 +408,8 @@
             </div>
           </div>
           
-          <div class="space-y-6">
+          <!-- Profil i zasoby - TYLKO dla lokalnych klastrów -->
+          <div v-if="form.provider === 'local'" class="space-y-6">
             <div>
               <h3 class="text-lg font-medium text-gray-800 dark:text-gray-200 mb-4">Profil i zasoby</h3>
               
@@ -357,6 +506,7 @@
               </p>
             </div>
 
+            <!-- Opcje zaawansowane - TYLKO dla lokalnych klastrów -->
             <details class="bg-gray-50 dark:bg-gray-700 p-5 rounded-xl border border-gray-200 dark:border-gray-600 group">
               <summary class="cursor-pointer font-semibold text-gray-700 dark:text-gray-300 flex items-center">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 text-gray-500 dark:text-gray-400 group-open:rotate-90 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -430,7 +580,7 @@
               </div>
             </details>
 
-            <!-- Dodaj po sekcji z opcjami zaawansowanymi -->
+            <!-- Monitoring checkbox - TYLKO dla lokalnych klastrów -->
             <div class="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-700 mt-6">
               <label class="flex items-start">
                 <input 
@@ -439,11 +589,11 @@
                   class="mt-1 mr-3 rounded text-blue-600 focus:ring-blue-500"
                 />
                 <div>
-                  <span class="font-medium text-blue-800">🔍 Zainstaluj stack monitoringu</span>
-                  <p class="text-sm text-blue-700 mt-1">
+                  <span class="font-medium text-blue-800 dark:text-blue-300">🔍 Zainstaluj stack monitoringu</span>
+                  <p class="text-sm text-blue-700 dark:text-blue-400 mt-1">
                     Automatycznie zainstaluje Prometheus i Grafana po utworzeniu klastra przy użyciu Helm
                   </p>
-                  <p class="text-xs text-blue-600 mt-1">
+                  <p class="text-xs text-blue-600 dark:text-blue-500 mt-1">
                     📊 Prometheus: http://localhost:30900 | 📈 Grafana: http://localhost:30300 (admin/admin123)
                   </p>
                 </div>
@@ -491,12 +641,16 @@ const form = reactive({
   clusterName: "",
   nodeCount: 2,
 
-  // AWS
-  awsRegion: "",
-  instanceType: "",
-  vpcCidr: "",
+  // AWS EKS
+  awsRegion: "eu-central-1",
+  instanceType: "t3.medium",
+  vpcCidr: "10.0.0.0/16",
   awsAccessKey: "",
   awsSecretKey: "",
+  diskSize: 20,        // Node disk size in GB
+  minNodes: 1,         // Auto-scaling min
+  maxNodes: 3,         // Auto-scaling max
+  k8sVersion: "1.30",  // Kubernetes version for EKS
 
   kubeconfigPath: "",
 
@@ -506,10 +660,7 @@ const form = reactive({
   memory: null as number | null,
   disk: null as number | null,
 
-  k8sVersion: "",
   enableAutoscaling: false,
-  minNodes: 1,
-  maxNodes: 1,
   tags: "",
   installMonitoring: false,
 })
@@ -564,18 +715,64 @@ async function handleSubmit() {
       statusMessage.value += " (z monitoringiem)"
     }
     
-    // Create cluster with monitoring flag and provider
-    const clusterData = {
-      cluster_name: form.clusterName,
-      node_count: form.nodeCount,
-      k8s_version: form.k8sVersion || undefined,
-      install_monitoring: form.installMonitoring,  // Backend obsłuży instalację
-      provider: form.provider === 'local' ? form.localClusterType : 'aws' // Send kind/k3d for local
+    let result
+    
+    // AWS EKS - użyj dedykowanego endpointu z pełną konfiguracją
+    if (form.provider === 'aws') {
+      const eksData = {
+        cluster_name: form.clusterName,
+        region: form.awsRegion || 'eu-central-1',
+        aws_access_key: form.awsAccessKey,
+        aws_secret_key: form.awsSecretKey,
+        
+        // Node configuration
+        node_count: form.nodeCount,
+        instance_type: form.instanceType || 't3.medium',
+        disk_size: form.diskSize || 20,
+        
+        // Auto-scaling
+        min_nodes: form.minNodes || 1,
+        max_nodes: form.maxNodes || 3,
+        
+        // Networking
+        vpc_cidr: form.vpcCidr || '10.0.0.0/16',
+        
+        // Kubernetes version
+        k8s_version: form.k8sVersion || '1.30',
+        
+        install_monitoring: form.installMonitoring
+      }
+      
+      console.log('Creating EKS cluster with advanced config:', eksData)
+      
+      const response = await fetch('http://localhost:8000/api/v1/eks-cluster/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(eksData)
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.detail || 'Failed to create EKS cluster')
+      }
+      
+      result = await response.json()
+    } else {
+      // Local cluster (kind/k3d)
+      const clusterData = {
+        cluster_name: form.clusterName,
+        node_count: form.nodeCount,
+        k8s_version: form.k8sVersion || undefined,
+        install_monitoring: form.installMonitoring,
+        provider: form.localClusterType // kind or k3d
+      }
+      
+      console.log('Creating local cluster with data:', clusterData)
+      
+      result = await ApiService.createCluster(clusterData)
     }
-    
-    console.log('Creating cluster with data:', clusterData)
-    
-    const result = await ApiService.createCluster(clusterData)
     
     console.log('Backend response:', result)
     

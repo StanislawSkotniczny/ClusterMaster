@@ -1,5 +1,78 @@
 [
   {
+    "id": "backup_create_testkindaaa_1761321346",
+    "timestamp": "2025-10-24T17:55:46.989802",
+    "operation_type": "backup_create",
+    "cluster_name": "testkindaaa",
+    "details": "Utworzono backup: backup1",
+    "status": "success",
+    "metadata": {
+      "backup_name": "backup1",
+      "output": "",
+      "command": ""
+    },
+    "updated_at": "2025-10-24T17:56:02.366018"
+  },
+  {
+    "id": "monitoring_install_test112233_1761320179",
+    "timestamp": "2025-10-24T17:36:19.689135",
+    "operation_type": "monitoring_install",
+    "cluster_name": "test112233",
+    "details": "Zainstalowano Prometheus + Grafana",
+    "status": "success",
+    "metadata": {
+      "components": [
+        "prometheus",
+        "grafana"
+      ],
+      "output": "\nStack monitoringu zainstalowany pomy\u015blnie",
+      "prometheus_port": null,
+      "grafana_port": null
+    },
+    "updated_at": "2025-10-24T17:37:43.263518"
+  },
+  {
+    "id": "backup_create_test112233_1761320143",
+    "timestamp": "2025-10-24T17:35:43.941146",
+    "operation_type": "backup_create",
+    "cluster_name": "test112233",
+    "details": "Utworzono backup: backuptest112233",
+    "status": "success",
+    "metadata": {
+      "backup_name": "backuptest112233",
+      "output": "",
+      "command": ""
+    },
+    "updated_at": "2025-10-24T17:36:00.903555"
+  },
+  {
+    "id": "app_install_test112233_1761320048",
+    "timestamp": "2025-10-24T17:34:08.175610",
+    "operation_type": "app_install",
+    "cluster_name": "test112233",
+    "details": "B\u0142\u0105d instalacji aplikacji: jenkins",
+    "status": "error",
+    "metadata": {
+      "app_name": "jenkins",
+      "chart": "jenkins/jenkins",
+      "error": "Helm install failed (exit code 1)",
+      "output": "install.go:225: 2025-10-24 17:34:14.0681329 +0200 CEST m=+0.076362701 [debug] Original chart version: \"\"\ninstall.go:242: 2025-10-24 17:34:14.777563 +0200 CEST m=+0.785792801 [debug] CHART PATH: C:\\Users\\syass\\AppData\\Local\\Temp\\helm\\repository\\jenkins-5.8.104.tgz\n\nError: INSTALLATION FAILED: execution error at (jenkins/templates/deprecation.yaml:133:6): `controller.adminPassword` no longer exists. It has been renamed to `controller.admin.password`\nhelm.go:92: 2025-10-24 17:34:14.8630506 +0200 CEST m=+0.871280401 [debug] execution error at (jenkins/templates/deprecation.yaml:133:6): `controller.adminPassword` no longer exists. It has been renamed to `controller.admin.password`\nINSTALLATION FAILED\nmain.newInstallCmd.func2\n\thelm.sh/helm/v3/cmd/helm/install.go:158\ngithub.com/spf13/cobra.(*Command).execute\n\tgithub.com/spf13/cobra@v1.9.1/command.go:1015\ngithub.com/spf13/cobra.(*Command).ExecuteC\n\tgithub.com/spf13/cobra@v1.9.1/command.go:1148\ngithub.com/spf13/cobra.(*Command).Execute\n\tgithub.com/spf13/cobra@v1.9.1/command.go:1071\nmain.main\n\thelm.sh/helm/v3/cmd/helm/helm.go:91\nruntime.main\n\truntime/proc.go:283\nruntime.goexit\n\truntime/asm_amd64.s:1700\n"
+    },
+    "updated_at": "2025-10-24T17:34:15.916635"
+  },
+  {
+    "id": "cluster_create_test112233_1761319986",
+    "timestamp": "2025-10-24T17:33:06.232886",
+    "operation_type": "cluster_create",
+    "cluster_name": "test112233",
+    "details": "Utworzono klaster Kind z 2 w\u0119z\u0142ami",
+    "status": "success",
+    "metadata": {
+      "provider": "kind",
+      "node_count": 2
+    }
+  },
+  {
     "id": "cluster_start_klusterk3dtest_1761250866",
     "timestamp": "2025-10-23T22:21:06.879852",
     "operation_type": "cluster_start",

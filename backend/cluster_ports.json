@@ -18,5 +18,9 @@
   "testkindaaa": {
     "prometheus": 30110,
     "grafana": 30050
+  },
+  "test112233": {
+    "prometheus": 30140,
+    "grafana": 30080
   }
 }

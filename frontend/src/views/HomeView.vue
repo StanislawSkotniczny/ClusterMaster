@@ -304,6 +304,167 @@
           </div>
         </div>
 
+        <!-- Klastry AWS (EKS) -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 transition-all">
+          <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+              <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Klastry AWS (EKS)</h3>
+              <svg 
+                v-if="awsLoading" 
+                class="animate-spin h-4 w-4 text-orange-500 dark:text-orange-400" 
+                xmlns="http://www.w3.org/2000/svg" 
+                fill="none" 
+                viewBox="0 0 24 24"
+              >
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <span v-if="awsStore.isConnected" class="text-xs bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 px-2 py-1 rounded-full">
+                ✓ Połączono
+              </span>
+            </div>
+            <div class="flex items-center space-x-2">
+              <button 
+                v-if="!awsStore.isConnected"
+                @click="showAwsCredentialsForm = !showAwsCredentialsForm" 
+                class="text-sm px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-medium transition-colors"
+              >
+                {{ showAwsCredentialsForm ? 'Ukryj' : 'Połącz z AWS' }}
+              </button>
+              <button 
+                v-else
+                @click="loadAwsClusters" 
+                :disabled="awsLoading"
+                class="text-sm px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors disabled:cursor-not-allowed"
+              >
+                {{ awsLoading ? 'Ładowanie...' : 'Odśwież' }}
+              </button>
+              <button 
+                v-if="awsStore.isConnected"
+                @click="awsStore.clearCredentials(); awsClusters = []" 
+                class="text-sm px-3 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
+                title="Wyloguj z AWS"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+          
+          <!-- AWS Credentials Form -->
+          <div v-if="showAwsCredentialsForm" class="p-6 bg-gray-50 dark:bg-gray-900 border-b border-gray-100 dark:border-gray-700">
+            <div class="max-w-2xl">
+              <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Wprowadź swoje credentials AWS. Będą zapisane w sesji do momentu wylogowania.
+              </p>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Region</label>
+                  <select 
+                    v-model="awsCredentialsForm.region"
+                    class="w-full rounded-md bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white"
+                  >
+                    <option value="us-east-1">us-east-1 (N. Virginia)</option>
+                    <option value="eu-central-1">eu-central-1 (Frankfurt)</option>
+                    <option value="eu-west-1">eu-west-1 (Ireland)</option>
+                    <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Access Key ID</label>
+                  <input 
+                    v-model="awsCredentialsForm.awsAccessKey"
+                    type="text"
+                    placeholder="AKIAIOSFODNN7EXAMPLE"
+                    class="w-full rounded-md bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Secret Access Key</label>
+                  <input 
+                    v-model="awsCredentialsForm.awsSecretKey"
+                    type="password"
+                    placeholder="wJalrXUtnFEMI/K7MDENG..."
+                    class="w-full rounded-md bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white"
+                  />
+                </div>
+              </div>
+              <button 
+                @click="loadAwsClusters"
+                :disabled="!awsCredentialsForm.awsAccessKey || !awsCredentialsForm.awsSecretKey || awsLoading"
+                class="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors disabled:cursor-not-allowed"
+              >
+                {{ awsLoading ? 'Ładowanie...' : 'Pokaż klastry' }}
+              </button>
+            </div>
+          </div>
+
+          <!-- AWS Clusters List -->
+          <div class="p-6">
+            <ul v-if="awsClusters.length > 0" class="space-y-3">
+              <li 
+                v-for="cluster in awsClusters" 
+                :key="cluster.name"
+                class="flex items-center justify-between p-4 bg-gradient-to-r from-orange-50 to-yellow-50 dark:from-orange-900/20 dark:to-yellow-900/20 rounded-lg border border-orange-100 dark:border-orange-800 hover:shadow-md transition-all group"
+              >
+                <div class="flex items-center space-x-3">
+                  <div class="bg-orange-100 dark:bg-orange-900 p-2 rounded-lg">
+                    <svg class="w-5 h-5 text-orange-600 dark:text-orange-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"></path>
+                    </svg>
+                  </div>
+                  <div>
+                    <div class="flex items-center space-x-2">
+                      <span class="font-semibold text-gray-900 dark:text-white">{{ cluster.name }}</span>
+                      <span class="text-xs bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded">EKS</span>
+                      <span class="text-xs text-gray-500 dark:text-gray-400">v{{ cluster.version }}</span>
+                    </div>
+                    <p class="text-sm text-gray-600 dark:text-gray-400">Region: {{ awsStore.currentRegion }}</p>
+                  </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                  <span 
+                    :class="[
+                      'px-2.5 py-1 text-xs rounded-full font-medium',
+                      cluster.status === 'ACTIVE' ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300' : 
+                      cluster.status === 'CREATING' ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300' :
+                      'bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300'
+                    ]"
+                  >
+                    {{ cluster.status }}
+                  </span>
+                  <router-link 
+                    :to="`/clusters/${cluster.name}?provider=eks&region=${awsStore.currentRegion}`"
+                    class="text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    Szczegóły →
+                  </router-link>
+                </div>
+              </li>
+            </ul>
+
+            <!-- Empty state -->
+            <div v-else-if="!showAwsCredentialsForm" class="text-center py-8">
+              <svg class="mx-auto h-12 w-12 text-gray-400 dark:text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"></path>
+              </svg>
+              <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">Brak połączenia z AWS</h3>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Kliknij "Połącz z AWS" aby zobaczyć swoje klastry EKS
+              </p>
+            </div>
+
+            <div v-else-if="awsClusters.length === 0 && !awsLoading" class="text-center py-8">
+              <svg class="mx-auto h-12 w-12 text-gray-400 dark:text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+              </svg>
+              <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">Brak klastrów EKS</h3>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Nie znaleziono żadnych klastrów w regionie {{ awsStore.currentRegion }}
+              </p>
+            </div>
+          </div>
+        </div>
+
         <!-- Status monitoringu klastrów -->
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 transition-all">
           <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
@@ -559,6 +720,7 @@
 import { useAuthStore } from '../stores/auth'
 import { useClustersStore } from '../stores/clusters'
 import { useActivityStore } from '../stores/activity'
+import { useAwsStore } from '../stores/aws'
 import { useRouter, useRoute } from 'vue-router'
 import { ref, onMounted, computed, onUnmounted } from 'vue'
 import type { ActivityLog } from '../services/api'
@@ -566,12 +728,30 @@ import type { ActivityLog } from '../services/api'
 const authStore = useAuthStore()
 const clustersStore = useClustersStore()
 const activityStore = useActivityStore()
+const awsStore = useAwsStore()
 const router = useRouter()
 const route = useRoute()
 const showSuccessNotification = ref(false)
 const successMessage = ref("")
 const showLogDetailsModal = ref(false)
 const selectedLog = ref<ActivityLog | null>(null)
+
+// AWS EKS state
+interface EksCluster {
+  name: string
+  status: string
+  version: string
+  endpoint: string
+  created_at: string
+}
+const awsClusters = ref<EksCluster[]>([])
+const awsLoading = ref(false)
+const showAwsCredentialsForm = ref(false)
+const awsCredentialsForm = ref({
+  region: awsStore.currentRegion || 'us-east-1',
+  awsAccessKey: '',
+  awsSecretKey: ''
+})
 
 // Use store data
 const clusterDetails = computed(() => clustersStore.clusters)
@@ -707,6 +887,11 @@ onMounted(async () => {
     await clustersStore.fetchClusters()
   }
   
+  // Auto-load AWS clusters if credentials are available
+  if (awsStore.hasCredentials) {
+    await loadAwsClusters()
+  }
+  
   // Start activity logs auto-refresh (persists across navigation)
   activityStore.startAutoRefresh(3000)
 })
@@ -723,6 +908,48 @@ const loadClusters = async () => {
     console.log("Otrzymane szczegóły klastrów:", clustersStore.clusters)
   } catch (error) {
     console.error('Błąd ładowania klastrów:', error)
+  }
+}
+
+// Load AWS EKS clusters
+const loadAwsClusters = async () => {
+  // Use credentials from form on first login, otherwise from store
+  const accessKey = awsCredentialsForm.value.awsAccessKey || awsStore.credentials?.accessKey
+  const secretKey = awsCredentialsForm.value.awsSecretKey || awsStore.credentials?.secretKey
+  const region = awsCredentialsForm.value.region || awsStore.currentRegion
+  
+  if (!accessKey || !secretKey) {
+    return
+  }
+  
+  // Save credentials to store
+  awsStore.setCredentials(region, accessKey, secretKey)
+  
+  // Hide form after successful connection
+  showAwsCredentialsForm.value = false
+  
+  awsLoading.value = true
+  try {
+    const response = await fetch('http://localhost:8000/api/v1/eks-cluster/list', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        region: region,
+        aws_access_key: accessKey,
+        aws_secret_key: secretKey
+      })
+    })
+    
+    const data = await response.json()
+    if (data.clusters) {
+      awsClusters.value = data.clusters
+    }
+  } catch (error) {
+    console.error('Błąd ładowania klastrów AWS:', error)
+  } finally {
+    awsLoading.value = false
   }
 }
 </script>

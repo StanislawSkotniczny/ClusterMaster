@@ -14,6 +14,7 @@ from app.services.app_service import AppService
 from app.services.k3d_service import k3d_service
 from app.services.activity_log import activity_log
 from app.services.notification_service import notification_service
+from app.services.eks_service import eks_service
 import argparse
 import sys
 import asyncio
@@ -3187,3 +3188,192 @@ async def apply_cluster_scaling(cluster_name: str, scaling_config: dict):
             "error": f"Unexpected error: {str(e)}",
             "operations": operations
         }
+
+
+# ========================================
+# AWS EKS ENDPOINTS
+# ========================================
+
+@app.post("/api/v1/eks-cluster/create")
+async def create_eks_cluster(request: Request):
+    """
+    Create AWS EKS cluster using Terraform with advanced configuration
+    """
+    print("=" * 80)
+    print("🚀 EKS CLUSTER CREATE REQUEST RECEIVED")
+    print("=" * 80)
+    
+    try:
+        data = await request.json()
+        print(f"📦 Request data: {data}")
+        
+        cluster_name = data.get("cluster_name")
+        region = data.get("region", "eu-central-1")
+        aws_access_key = data.get("aws_access_key")
+        aws_secret_key = data.get("aws_secret_key")
+        
+        # Node configuration
+        node_count = data.get("node_count", 2)
+        instance_type = data.get("instance_type", "t3.medium")
+        disk_size = data.get("disk_size", 20)
+        
+        # Auto-scaling configuration
+        min_nodes = data.get("min_nodes", 1)
+        max_nodes = data.get("max_nodes", 3)
+        
+        # Networking
+        vpc_cidr = data.get("vpc_cidr", "10.0.0.0/16")
+        
+        # Kubernetes version
+        k8s_version = data.get("k8s_version", "1.30")
+        
+        print(f"📝 Cluster config:")
+        print(f"   Name: {cluster_name}")
+        print(f"   Region: {region}")
+        print(f"   Instance: {instance_type}")
+        print(f"   Nodes: {node_count} (min={min_nodes}, max={max_nodes})")
+        print(f"   Disk: {disk_size}GB")
+        print(f"   K8s version: {k8s_version}")
+        print(f"   VPC CIDR: {vpc_cidr}")
+        
+        if not all([cluster_name, aws_access_key, aws_secret_key]):
+            print("❌ Missing required fields!")
+            raise HTTPException(status_code=400, detail="Missing required fields")
+        
+        print("🔨 Starting Terraform cluster creation...")
+        result = eks_service.create_cluster(
+            cluster_name=cluster_name,
+            region=region,
+            aws_access_key=aws_access_key,
+            aws_secret_key=aws_secret_key,
+            node_count=node_count,
+            instance_type=instance_type,
+            vpc_cidr=vpc_cidr,
+            disk_size=disk_size,
+            min_nodes=min_nodes,
+            max_nodes=max_nodes,
+            k8s_version=k8s_version
+        )
+        print(f"✅ Terraform result: {result}")
+        print("=" * 80)
+        
+        if not result.get("success"):
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to create EKS cluster"))
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating EKS cluster: {str(e)}")
+
+
+@app.post("/api/v1/eks-cluster/list")
+async def list_eks_clusters(request: Request):
+    """
+    List EKS clusters in AWS region
+    """
+    try:
+        data = await request.json()
+        
+        region = data.get("region")
+        aws_access_key = data.get("aws_access_key")
+        aws_secret_key = data.get("aws_secret_key")
+        
+        if not all([region, aws_access_key, aws_secret_key]):
+            raise HTTPException(status_code=400, detail="Missing required fields")
+        
+        result = eks_service.list_clusters(
+            region=region,
+            aws_access_key=aws_access_key,
+            aws_secret_key=aws_secret_key
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error listing EKS clusters: {str(e)}")
+
+
+@app.delete("/api/v1/eks-cluster/{cluster_name}")
+async def delete_eks_cluster(cluster_name: str, request: Request):
+    """
+    Delete EKS cluster
+    """
+    try:
+        data = await request.json()
+        
+        region = data.get("region")
+        aws_access_key = data.get("aws_access_key")
+        aws_secret_key = data.get("aws_secret_key")
+        
+        if not all([region, aws_access_key, aws_secret_key]):
+            raise HTTPException(status_code=400, detail="Missing required fields")
+        
+        result = eks_service.delete_cluster(
+            cluster_name=cluster_name,
+            region=region,
+            aws_access_key=aws_access_key,
+            aws_secret_key=aws_secret_key
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting EKS cluster: {str(e)}")
+
+
+@app.get("/api/v1/eks-cluster/{cluster_name}/status")
+async def get_eks_cluster_status(cluster_name: str, region: str, aws_access_key: str, aws_secret_key: str):
+    """
+    Get EKS cluster status
+    """
+    try:
+        result = eks_service.get_cluster_status(
+            cluster_name=cluster_name,
+            region=region,
+            aws_access_key=aws_access_key,
+            aws_secret_key=aws_secret_key
+        )
+        
+        return result
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting EKS cluster status: {str(e)}")
+
+
+@app.post("/api/v1/eks-cluster/{cluster_name}/details")
+async def get_eks_cluster_details(cluster_name: str, request: Request):
+    """
+    Get detailed EKS cluster information (nodes, deployments, etc.)
+    """
+    try:
+        data = await request.json()
+        
+        region = data.get("region")
+        aws_access_key = data.get("aws_access_key")
+        aws_secret_key = data.get("aws_secret_key")
+        
+        if not all([region, aws_access_key, aws_secret_key]):
+            raise HTTPException(status_code=400, detail="Missing required AWS credentials")
+        
+        result = eks_service.get_cluster_details(
+            cluster_name=cluster_name,
+            region=region,
+            aws_access_key=aws_access_key,
+            aws_secret_key=aws_secret_key
+        )
+        
+        if not result.get("success"):
+            raise HTTPException(status_code=404, detail=result.get("error", "Cluster not found"))
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting EKS cluster details: {str(e)}")

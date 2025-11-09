@@ -1,6 +1,7 @@
 import { defineStore } from "pinia"
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth"
 import { auth } from "@/firebase"
+import { useAwsStore } from "./aws"
 
 export const useAuthStore = defineStore("auth", {
     state: () => ({
@@ -18,6 +19,10 @@ export const useAuthStore = defineStore("auth", {
         async logout() {
             await signOut(auth)
             this.user = null
+            
+            // Clear AWS credentials on logout
+            const awsStore = useAwsStore()
+            awsStore.clearCredentials()
         },
         init() {
             return new Promise((resolve) => {
