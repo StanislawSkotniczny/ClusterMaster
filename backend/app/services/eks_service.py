@@ -144,8 +144,16 @@ class EksService:
                 
                 print(f"💾 Stan Terraform zapisany w: {cluster_state_dir}")
                 
-                # Konfiguruj kubectl dla nowego klastra
-                self._configure_kubectl(cluster_name, region, env)
+                # Zapisz credentials dla przyszłych operacji kubectl
+                self._save_cluster_credentials(cluster_name, aws_access_key, aws_secret_key, region)
+                
+                # Konfiguruj kubectl dla nowego klastra i pobierz ARN
+                print("⚙️ Konfigurowanie kubectl...")
+                cluster_arn = self._configure_kubectl(cluster_name, region, env)
+                
+                # Zainstaluj Metrics Server (dla kubectl top nodes)
+                print("📊 Instalowanie Metrics Server...")
+                self._install_metrics_server(cluster_name, region, env, context=cluster_arn)
                 
                 # Pobierz output z Terraform
                 output_result = self._run_terraform_command(
@@ -485,8 +493,9 @@ class EksService:
                         "status": node.get("status", {}).get("conditions", [{}])[-1].get("type", "Unknown"),
                         "role": "worker",  # EKS nodes są workerami
                         "version": node.get("status", {}).get("nodeInfo", {}).get("kubeletVersion"),
-                        "cpu_usage": "N/A",  # Wymagałoby metrics-server
-                        "memory_usage": "N/A"
+                        "cpu_usage": "N/A",  # Zostanie wypełnione poniżej jeśli Metrics Server działa
+                        "memory_usage": "N/A",
+                        "memory_percent": "N/A"
                     })
             
             # Pobierz node groups info
@@ -503,6 +512,87 @@ class EksService:
                 ng_data = json.loads(ng_result.stdout)
                 node_count = len(ng_data.get("nodegroups", []))
             
+            # Pobierz CPU/RAM usage z kubectl top nodes jeśli Metrics Server zainstalowany
+            cpu_usage = 0.0
+            memory_usage = 0.0
+            
+            # Wykryj context klastra - użyj pełnego ARN jeśli dostępny
+            context = f"arn:aws:eks:{region}:*:cluster/{cluster_name}"
+            
+            # Spróbuj pobrać dokładny ARN z kubectl contexts
+            contexts_result = subprocess.run(
+                ["kubectl", "config", "get-contexts", "-o", "name"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=10
+            )
+            
+            if contexts_result.returncode == 0:
+                for ctx in contexts_result.stdout.strip().split('\n'):
+                    if f":cluster/{cluster_name}" in ctx and ctx.startswith("arn:aws:eks"):
+                        context = ctx
+                        break
+            
+            # Sprawdź czy Metrics Server działa - próbuj kubectl top nodes
+            top_result = subprocess.run(
+                ["kubectl", "top", "nodes", "--context", context],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=15
+            )
+            
+            if top_result.returncode == 0:
+                # Parse output: NAME CPU(cores) CPU% MEMORY(bytes) MEMORY%
+                lines = top_result.stdout.strip().split('\n')
+                if len(lines) > 1:  # ma header + dane
+                    total_cpu = 0.0
+                    total_mem = 0.0
+                    valid_nodes = 0
+                    
+                    # Najpierw stwórz mapę node_name -> metryki
+                    node_metrics = {}
+                    
+                    for line in lines[1:]:  # skip header
+                        parts = line.split()
+                        if len(parts) >= 5:
+                            try:
+                                node_name = parts[0]
+                                # CPU% jest 3cią kolumną (index 2)
+                                cpu_str = parts[2].rstrip('%')
+                                # MEMORY(bytes) jest 4tą kolumną (index 3)
+                                memory_bytes = parts[3]
+                                # Memory% jest 5tą kolumną (index 4)
+                                mem_str = parts[4].rstrip('%')
+                                
+                                cpu_percent = float(cpu_str)
+                                mem_percent = float(mem_str)
+                                
+                                node_metrics[node_name] = {
+                                    'cpu_usage': f"{cpu_percent}%",
+                                    'memory_usage': memory_bytes,
+                                    'memory_percent': f"{mem_percent}%"
+                                }
+                                
+                                total_cpu += cpu_percent
+                                total_mem += mem_percent
+                                valid_nodes += 1
+                            except (ValueError, IndexError):
+                                continue
+                    
+                    # Wypełnij metryki dla nodów w liście
+                    for node in nodes:
+                        node_name = node.get('name')
+                        if node_name in node_metrics:
+                            node['cpu_usage'] = node_metrics[node_name]['cpu_usage']
+                            node['memory_usage'] = node_metrics[node_name]['memory_usage']
+                            node['memory_percent'] = node_metrics[node_name]['memory_percent']
+                    
+                    if valid_nodes > 0:
+                        cpu_usage = round(total_cpu / valid_nodes, 1)
+                        memory_usage = round(total_mem / valid_nodes, 1)
+            
             return {
                 "success": True,
                 "name": cluster_name,
@@ -512,11 +602,11 @@ class EksService:
                 "node_count": len(nodes),
                 "api_endpoint": status_info.get("endpoint"),
                 "created_at": status_info.get("created_at"),
-                "context": f"arn:aws:eks:{region}:*:cluster/{cluster_name}",
+                "context": context,
                 "resources": {
                     "nodes": nodes,
-                    "cpu_usage": "N/A",
-                    "memory_usage": "N/A"
+                    "cpu_usage": cpu_usage,
+                    "memory_usage": memory_usage
                 },
                 "monitoring": {
                     "installed": False  # EKS nie ma wbudowanego Prometheus/Grafana
@@ -783,9 +873,27 @@ output "cluster_security_group_id" {{
                 "stderr": str(e)
             }
     
-    def _configure_kubectl(self, cluster_name: str, region: str, env: dict):
-        """Konfiguruj kubectl dla klastra EKS"""
+    def _configure_kubectl(self, cluster_name: str, region: str, env: dict) -> Optional[str]:
+        """Konfiguruj kubectl dla klastra EKS i zwróć pełny ARN"""
         try:
+            # Najpierw pobierz ARN klastra z AWS
+            result = subprocess.run(
+                ["aws", "eks", "describe-cluster", "--name", cluster_name, "--region", region, "--output", "json"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30
+            )
+            
+            cluster_arn = None
+            if result.returncode == 0:
+                try:
+                    data = json.loads(result.stdout)
+                    cluster_arn = data.get("cluster", {}).get("arn")
+                except:
+                    pass
+            
+            # Następnie zaktualizuj kubeconfig
             subprocess.run(
                 [
                     "aws", "eks", "update-kubeconfig",
@@ -796,8 +904,11 @@ output "cluster_security_group_id" {{
                 timeout=30,
                 check=False
             )
-        except:
-            pass  # Nie krytyczne jeśli się nie uda
+            
+            return cluster_arn
+        except Exception as e:
+            print(f"    ⚠️ Błąd konfiguracji kubectl: {e}")
+            return None
     
     def _get_cluster_details(self, cluster_name: str, region: str, env: dict) -> Optional[Dict]:
         """Pobierz szczegóły klastra"""
@@ -874,6 +985,117 @@ output "cluster_security_group_id" {{
         except Exception as e:
             print(f"    ❌ Błąd podczas usuwania node groups: {str(e)}")
             return False
+
+
+    def _install_metrics_server(self, cluster_name: str, region: str, env: dict, context: Optional[str] = None):
+        """Zainstaluj Kubernetes Metrics Server na klastrze EKS"""
+        try:
+            # Jeśli nie podano contextu, pobierz go z kubectl
+            if not context:
+                # Pobierz wszystkie konteksty i znajdź ten dla klastra
+                result = subprocess.run(
+                    ["kubectl", "config", "get-contexts", "-o", "name"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                
+                if result.returncode == 0:
+                    contexts = result.stdout.strip().split('\n')
+                    for ctx in contexts:
+                        if cluster_name in ctx and "eks" in ctx:
+                            context = ctx
+                            break
+                
+                if not context:
+                    print(f"    ⚠️ Nie znaleziono contextu kubectl dla klastra {cluster_name}")
+                    return False
+            
+            print(f"    → Instalowanie metrics-server (context: {context})...")
+            
+            # Zainstaluj Metrics Server
+            result = subprocess.run([
+                "kubectl", "apply",
+                "-f", "https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml",
+                "--context", context
+            ], capture_output=True, text=True, env=env, timeout=60)
+            
+            if result.returncode != 0:
+                print(f"    ⚠️ Nie udało się zainstalować Metrics Server: {result.stderr}")
+                return False
+            
+            print("    ✅ Manifest Metrics Server zastosowany")
+            print("    → Czekam na uruchomienie Metrics Server (max 120s)...")
+            
+            # Poczekaj aż deployment będzie gotowy
+            rollout_result = subprocess.run([
+                "kubectl", "rollout", "status", 
+                "deployment/metrics-server",
+                "-n", "kube-system",
+                "--context", context,
+                "--timeout=120s"
+            ], capture_output=True, text=True, env=env, timeout=130)
+            
+            if rollout_result.returncode == 0:
+                print("    ✅ Metrics Server uruchomiony i gotowy")
+                return True
+            else:
+                print(f"    ⚠️ Metrics Server zainstalowany, ale rollout nie zakończony: {rollout_result.stderr}")
+                print("    ℹ️ Metrics Server może potrzebować więcej czasu - sprawdź później")
+                return True  # Zwróć True bo instalacja się udała, rollout może trwać dłużej
+                
+        except subprocess.TimeoutExpired:
+            print("    ⚠️ Timeout podczas instalacji Metrics Server")
+            print("    ℹ️ Metrics Server może być w trakcie instalacji - sprawdź później")
+            return True
+        except Exception as e:
+            print(f"    ⚠️ Błąd podczas instalacji Metrics Server: {e}")
+            return False
+    
+    def _save_cluster_credentials(self, cluster_name: str, aws_access_key: str, aws_secret_key: str, region: str):
+        """Zapisz credentials klastra do pliku (zaszyfrowane base64)"""
+        try:
+            import base64
+            cluster_state_dir = self.terraform_states_dir / cluster_name
+            cluster_state_dir.mkdir(exist_ok=True)
+            
+            # Prosty obfuskacja (nie pełne szyfrowanie, ale lepsze niż plaintext)
+            credentials = {
+                "aws_access_key": base64.b64encode(aws_access_key.encode()).decode(),
+                "aws_secret_key": base64.b64encode(aws_secret_key.encode()).decode(),
+                "region": region
+            }
+            
+            creds_file = cluster_state_dir / ".credentials.json"
+            with open(creds_file, 'w') as f:
+                json.dump(credentials, f)
+            
+            print(f"💾 Credentials zapisane dla klastra: {cluster_name}")
+        except Exception as e:
+            print(f"⚠️ Nie udało się zapisać credentials: {e}")
+    
+    def get_cluster_credentials(self, cluster_name: str) -> Optional[Dict[str, str]]:
+        """Wczytaj credentials klastra z pliku"""
+        try:
+            import base64
+            creds_file = self.terraform_states_dir / cluster_name / ".credentials.json"
+            
+            if not creds_file.exists():
+                print(f"⚠️ Brak credentials dla klastra: {cluster_name}")
+                return None
+            
+            with open(creds_file, 'r') as f:
+                credentials = json.load(f)
+            
+            # Dekoduj z base64
+            return {
+                "aws_access_key": base64.b64decode(credentials["aws_access_key"]).decode(),
+                "aws_secret_key": base64.b64decode(credentials["aws_secret_key"]).decode(),
+                "region": credentials["region"]
+            }
+        except Exception as e:
+            print(f"⚠️ Błąd wczytywania credentials: {e}")
+            return None
 
 
 eks_service = EksService()

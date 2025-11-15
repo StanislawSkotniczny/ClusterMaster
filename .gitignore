@@ -48,6 +48,12 @@ backend/backups/*.zip
 # Node modules
 node_modules/
 
+**/.credentials.json
+backend/terraform_states/**/.credentials.json
+
+# Terraform states with sensitive data
+backend/terraform_states/*/
+
 # Environment variables
 .env
 .env.local

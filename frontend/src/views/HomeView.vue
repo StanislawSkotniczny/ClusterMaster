@@ -108,7 +108,7 @@
                 </svg>
                 <p class="text-sm">Ładowanie klastrów...</p>
               </div>
-              <div v-else-if="clusterDetails.length === 0" class="text-gray-500 dark:text-gray-400 text-center py-8">
+              <div v-else-if="localClusters.length === 0" class="text-gray-500 dark:text-gray-400 text-center py-8">
                 <svg class="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
                 </svg>
@@ -117,7 +117,7 @@
               </div>
               <ul v-else class="space-y-3">
                 <li 
-                  v-for="cluster in clusterDetails" 
+                  v-for="cluster in localClusters" 
                   :key="cluster.name" 
                   class="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors group"
                 >
@@ -737,14 +737,6 @@ const showLogDetailsModal = ref(false)
 const selectedLog = ref<ActivityLog | null>(null)
 
 // AWS EKS state
-interface EksCluster {
-  name: string
-  status: string
-  version: string
-  endpoint: string
-  created_at: string
-}
-const awsClusters = ref<EksCluster[]>([])
 const awsLoading = ref(false)
 const showAwsCredentialsForm = ref(false)
 const awsCredentialsForm = ref({
@@ -756,6 +748,15 @@ const awsCredentialsForm = ref({
 // Use store data
 const clusterDetails = computed(() => clustersStore.clusters)
 const loading = computed(() => clustersStore.isLoading)
+
+// Separate local and AWS clusters
+const localClusters = computed(() => 
+  clustersStore.clusters.filter(c => c.provider === 'kind' || c.provider === 'k3d')
+)
+
+const awsClusters = computed(() => 
+  clustersStore.clusters.filter(c => c.provider === 'eks')
+)
 
 // Computed properties for statistics
 const totalNodesCount = computed(() => {
@@ -942,10 +943,8 @@ const loadAwsClusters = async () => {
       })
     })
     
-    const data = await response.json()
-    if (data.clusters) {
-      awsClusters.value = data.clusters
-    }
+    await response.json()
+   
   } catch (error) {
     console.error('Błąd ładowania klastrów AWS:', error)
   } finally {

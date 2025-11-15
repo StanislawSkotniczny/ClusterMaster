@@ -8,6 +8,38 @@ import threading
 import time
 from .port_manager import port_manager
 
+def get_cluster_context_for_helm(cluster_name: str) -> str:
+    """Pobierz prawidłowy kontekst kubectl dla klastra (obsługa EKS, k3d, kind)"""
+    from .k3d_service import k3d_service
+    
+    # Sprawdź czy to klaster EKS
+    try:
+        result = subprocess.run(
+            ["kubectl", "config", "get-contexts", "-o", "name"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0:
+            contexts = result.stdout.strip().split('\n')
+            for context in contexts:
+                if cluster_name in context and 'arn:aws:eks' in context:
+                    return context
+    except Exception:
+        pass
+    
+    # Sprawdź k3d
+    try:
+        k3d_clusters = k3d_service.list_clusters()
+        if cluster_name in k3d_clusters:
+            return f"k3d-{cluster_name}"
+    except Exception:
+        pass
+    
+    # Default to kind
+    return f"kind-{cluster_name}"
+
 class HelmService:
     def __init__(self):
         self.helm_bin = self.find_helm_executable()
@@ -72,17 +104,8 @@ class HelmService:
         try:
             # Detect cluster provider (k3d or kind)
             from .k3d_service import k3d_service
-            provider = "kind"  # default
-            
-            # Check if it's a k3d cluster
-            try:
-                k3d_clusters = k3d_service.list_clusters()
-                if cluster_name in k3d_clusters:
-                    provider = "k3d"
-            except:
-                pass
-            
-            context = f"{provider}-{cluster_name}"
+            # Pobierz prawidłowy kontekst klastra
+            context = get_cluster_context_for_helm(cluster_name)
             
             # Przypisz porty dla klastra
             cluster_ports = port_manager.assign_ports_for_cluster(cluster_name)

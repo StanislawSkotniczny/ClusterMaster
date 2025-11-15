@@ -21,6 +21,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Optional
+from pathlib import Path
 
 # Parse command line arguments
 def parse_args():
@@ -226,12 +227,23 @@ def get_basic_node_info(cluster_name: str) -> dict:
     try:
         # Wykryj provider klastra
         provider = detect_cluster_provider(cluster_name)
-        context = f"{provider}-{cluster_name}"
+        context = get_cluster_context(cluster_name, provider)
+        
+        # Przygotuj environment variables (dla EKS)
+        env = os.environ.copy()
+        if provider == "eks":
+            credentials = eks_service.get_cluster_credentials(cluster_name)
+            if credentials:
+                env.update({
+                    "AWS_ACCESS_KEY_ID": credentials["aws_access_key"],
+                    "AWS_SECRET_ACCESS_KEY": credentials["aws_secret_key"],
+                    "AWS_DEFAULT_REGION": credentials["region"]
+                })
         
         nodes_result = subprocess.run([
             "kubectl", "get", "nodes", "--context", context,
             "-o", "json"
-        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5, env=env)
         
         if nodes_result.returncode == 0:
             import json
@@ -284,7 +296,25 @@ def get_basic_node_info(cluster_name: str) -> dict:
     }
 
 def detect_cluster_provider(cluster_name: str) -> str:
-    """Wykryj providera klastra (kind lub k3d)"""
+    """Wykryj providera klastra (kind, k3d lub eks)"""
+    # Sprawdź czy to klaster EKS (sprawdź kubeconfig dla EKS ARN)
+    try:
+        result = subprocess.run(
+            ["kubectl", "config", "get-contexts", "-o", "name"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0:
+            contexts = result.stdout.strip().split('\n')
+            # Szukaj kontekstu EKS (zawiera nazwę klastra i wygląda jak ARN)
+            for context in contexts:
+                if cluster_name in context and ('arn:aws:eks' in context or 'eks' in context.lower()):
+                    return "eks"
+    except Exception as e:
+        print(f"Nie można sprawdzić kontekstów kubectl: {e}")
+    
     # Sprawdź k3d clusters (z obsługą błędów)
     try:
         k3d_clusters = k3d_service.list_clusters()
@@ -304,18 +334,56 @@ def detect_cluster_provider(cluster_name: str) -> str:
     # Default to kind if unknown
     return "kind"
 
+def get_cluster_context(cluster_name: str, provider: str = None) -> str:
+    """Pobierz prawidłowy kontekst kubectl dla klastra"""
+    if provider is None:
+        provider = detect_cluster_provider(cluster_name)
+    
+    if provider == "eks":
+        # Dla EKS, znajdź pełny kontekst ARN
+        try:
+            result = subprocess.run(
+                ["kubectl", "config", "get-contexts", "-o", "name"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode == 0:
+                contexts = result.stdout.strip().split('\n')
+                for context in contexts:
+                    if cluster_name in context and 'arn:aws:eks' in context:
+                        return context
+        except Exception as e:
+            print(f"Nie można znaleźć kontekstu EKS: {e}")
+    
+    # Dla kind i k3d użyj standardowego formatu
+    return f"{provider}-{cluster_name}"
+
 def get_enhanced_node_info(cluster_name: str) -> dict:
     """Pobierz rozszerzone informacje o węzłach używając Docker stats"""
     try:
         # Wykryj provider klastra
         provider = detect_cluster_provider(cluster_name)
-        context = f"{provider}-{cluster_name}"
+        context = get_cluster_context(cluster_name, provider)
+        print(f"[get_enhanced_node_info] START for cluster={cluster_name}, provider={provider}, context={context}")
+        
+        # Przygotuj environment variables (dla EKS)
+        env = os.environ.copy()
+        if provider == "eks":
+            credentials = eks_service.get_cluster_credentials(cluster_name)
+            if credentials:
+                env.update({
+                    "AWS_ACCESS_KEY_ID": credentials["aws_access_key"],
+                    "AWS_SECRET_ACCESS_KEY": credentials["aws_secret_key"],
+                    "AWS_DEFAULT_REGION": credentials["region"]
+                })
         
         # Najpierw pobierz nazwy węzłów
         nodes_result = subprocess.run([
             "kubectl", "get", "nodes", "--context", context,
             "-o", "json"
-        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5, env=env)
         
         if nodes_result.returncode != 0:
             return get_basic_node_info(cluster_name)
@@ -351,26 +419,60 @@ def get_enhanced_node_info(cluster_name: str) -> dict:
         
         node_names = [node['name'] for node in nodes_info_list]
         
-      
-        if node_names:
-            docker_stats = subprocess.run([
-                "docker", "stats", "--no-stream", "--format", 
-                "{{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"
-            ] + node_names, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
+        # Dla EKS użyj kubectl top nodes, dla lokalnych Docker stats
+        stats_map = {}
+        
+        if provider == "eks":
+            # Spróbuj użyć kubectl top nodes (wymaga metrics-server)
+            print(f"[get_enhanced_node_info] Running kubectl top nodes with context={context}")
+            print(f"[get_enhanced_node_info] AWS env vars present: AWS_ACCESS_KEY_ID={'AWS_ACCESS_KEY_ID' in env}, AWS_SECRET_ACCESS_KEY={'AWS_SECRET_ACCESS_KEY' in env}")
             
-            # Parse stats
-            stats_map = {}
-            if docker_stats.returncode == 0:
-                lines = docker_stats.stdout.strip().split('\n')
-                for line in lines:
-                    parts = line.split('\t')
-                    if len(parts) >= 4:
-                        container_name = parts[0]
-                        stats_map[container_name] = {
-                            'cpu': parts[1],
-                            'memory': parts[2],
-                            'memory_percent': parts[3]
+            top_result = subprocess.run([
+                "kubectl", "top", "nodes", "--context", context
+            ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10, env=env)
+            
+            print(f"[get_enhanced_node_info] kubectl top nodes returncode={top_result.returncode}")
+            print(f"[get_enhanced_node_info] stdout={top_result.stdout[:200]}")
+            print(f"[get_enhanced_node_info] stderr={top_result.stderr[:200]}")
+            
+            if top_result.returncode == 0:
+                # Parse output: NAME   CPU(cores)   CPU%   MEMORY(bytes)   MEMORY%
+                lines = top_result.stdout.strip().split('\n')
+                for line in lines[1:]:  # Skip header
+                    parts = line.split()
+                    if len(parts) >= 5:
+                        node_name = parts[0]
+                        cpu_percent = parts[2]
+                        memory_usage = parts[3]
+                        memory_percent = parts[4]
+                        stats_map[node_name] = {
+                            'cpu': cpu_percent,
+                            'memory': memory_usage,
+                            'memory_percent': memory_percent
                         }
+                print(f"[get_enhanced_node_info] Parsed stats for {len(stats_map)} nodes")
+            else:
+                print(f"[get_enhanced_node_info] kubectl top nodes failed for EKS: {top_result.stderr}")
+        else:
+            # Dla lokalnych klastrów użyj Docker stats
+            if node_names:
+                docker_stats = subprocess.run([
+                    "docker", "stats", "--no-stream", "--format", 
+                    "{{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"
+                ] + node_names, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
+                
+                # Parse stats
+                if docker_stats.returncode == 0:
+                    lines = docker_stats.stdout.strip().split('\n')
+                    for line in lines:
+                        parts = line.split('\t')
+                        if len(parts) >= 4:
+                            container_name = parts[0]
+                            stats_map[container_name] = {
+                                'cpu': parts[1],
+                                'memory': parts[2],
+                                'memory_percent': parts[3]
+                            }
         
         nodes_info = []
         total_cpu = 0.0
@@ -416,15 +518,19 @@ def get_enhanced_node_info(cluster_name: str) -> dict:
         avg_cpu = round(total_cpu / node_count, 1) if node_count > 0 else 0
         avg_mem = round(total_mem / node_count, 1) if node_count > 0 else 0
         
-        return {
+        result = {
             "node_count": len(nodes_info),
             "nodes": nodes_info,
             "cpu_usage": avg_cpu,  # Average CPU across all nodes
             "memory_usage": avg_mem,  # Average memory across all nodes
             "summary": f"{len(nodes_info)} wezlow",
-            "type": "docker_stats",
-            "note": "Metryki z Docker (zywe dane CPU/RAM)"
+            "type": "kubectl_top" if provider == "eks" else "docker_stats",
+            "note": "Metryki z kubectl top nodes (EKS)" if provider == "eks" else "Metryki z Docker (zywe dane CPU/RAM)"
         }
+        
+        print(f"[get_enhanced_node_info] Returning result for {cluster_name}: cpu_usage={avg_cpu}%, memory_usage={avg_mem}%, nodes={len(nodes_info)}")
+        
+        return result
         
     except Exception as e:
         return get_basic_node_info(cluster_name)
@@ -846,10 +952,10 @@ async def list_clusters():
 
 @app.get("/api/v1/local-cluster")
 async def list_clusters_detailed(include_resources: bool = False):
-    """Lista klastrów Kind i k3d z dodatkowymi informacjami - zoptymalizowana wersja z cache
+    """Lista klastrów Kind, k3d i EKS z dodatkowymi informacjami - zoptymalizowana wersja z cache
     
     Args:
-        include_resources: Czy dołączyć szczegółowe informacje o zasobach (Docker stats) - wolniejsze
+        include_resources: Czy dołączyć szczegółowe informacje o zasobach (Docker stats lub kubectl top) - wolniejsze
     """
     
     # Sprawdź cache (osobny klucz dla wersji z/bez zasobów)
@@ -872,6 +978,24 @@ async def list_clusters_detailed(include_resources: bool = False):
         cluster_names.extend(k3d_clusters)
     except Exception as e:
         print(f"Error fetching k3d clusters: {e}")
+    
+    # Pobierz klastry EKS (z folderu terraform_states)
+    try:
+        # Użyj ścieżki względem lokalizacji tego pliku (backend/)
+        terraform_states_dir = Path(__file__).parent / "terraform_states"
+        print(f"[list_clusters_detailed] Checking EKS clusters in: {terraform_states_dir}")
+        if terraform_states_dir.exists():
+            for cluster_dir in terraform_states_dir.iterdir():
+                if cluster_dir.is_dir():
+                    # Sprawdź czy to klaster EKS (ma plik terraform.tfstate)
+                    tfstate_file = cluster_dir / "terraform.tfstate"
+                    if tfstate_file.exists():
+                        print(f"[list_clusters_detailed] Found EKS cluster: {cluster_dir.name}")
+                        cluster_names.append(cluster_dir.name)
+        else:
+            print(f"[list_clusters_detailed] EKS directory does not exist: {terraform_states_dir}")
+    except Exception as e:
+        print(f"Error fetching EKS clusters: {e}")
     
     if not cluster_names:
         return {"clusters": []}
@@ -1254,14 +1378,34 @@ async def get_node_logs(cluster_name: str, node_name: str):
     """Pobierz logi i szczegóły węzła"""
     try:
         provider = detect_cluster_provider(cluster_name)
-        context = f"{provider}-{cluster_name}"
+        context = get_cluster_context(cluster_name, provider)
+        
+        print(f"[get_node_logs] cluster={cluster_name}, node={node_name}, provider={provider}, context={context}")
+        
+        # Przygotuj environment variables (dla EKS potrzebne są AWS credentials)
+        env = os.environ.copy()
+        if provider == "eks":
+            credentials = eks_service.get_cluster_credentials(cluster_name)
+            if credentials:
+                env.update({
+                    "AWS_ACCESS_KEY_ID": credentials["aws_access_key"],
+                    "AWS_SECRET_ACCESS_KEY": credentials["aws_secret_key"],
+                    "AWS_DEFAULT_REGION": credentials["region"]
+                })
+                print(f"[get_node_logs] Using stored AWS credentials for cluster {cluster_name}")
+            else:
+                print(f"[get_node_logs] Warning: No stored credentials found for EKS cluster {cluster_name}")
         
         # Pobierz szczegóły węzła (describe)
         describe_result = subprocess.run([
             "kubectl", "describe", "node", node_name, "--context", context
-        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10, env=env)
         
-        node_details = describe_result.stdout if describe_result.returncode == 0 else "Failed to get node details"
+        if describe_result.returncode != 0:
+            print(f"[get_node_logs] Error getting node details: {describe_result.stderr}")
+            node_details = f"Failed to get node details\nError: {describe_result.stderr}"
+        else:
+            node_details = describe_result.stdout
         
         # Pobierz eventy dla węzła
         events_result = subprocess.run([
@@ -1269,7 +1413,7 @@ async def get_node_logs(cluster_name: str, node_name: str):
             "--field-selector", f"involvedObject.name={node_name}",
             "--context", context,
             "--sort-by", ".lastTimestamp"
-        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10, env=env)
         
         events = events_result.stdout if events_result.returncode == 0 else "No events found"
         
@@ -1279,7 +1423,7 @@ async def get_node_logs(cluster_name: str, node_name: str):
             "--field-selector", f"spec.nodeName={node_name}",
             "--context", context,
             "-o", "wide"
-        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10, env=env)
         
         pods = pods_result.stdout if pods_result.returncode == 0 else "No pods found"
         
@@ -1288,7 +1432,7 @@ async def get_node_logs(cluster_name: str, node_name: str):
             "kubectl", "get", "node", node_name,
             "--context", context,
             "-o", "jsonpath={.status.conditions[*].type}:{.status.conditions[*].status}"
-        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5, env=env)
         
         conditions = conditions_result.stdout if conditions_result.returncode == 0 else "Unknown"
         
@@ -2032,9 +2176,8 @@ async def get_monitoring_status_endpoint(cluster_name: str):
     """Sprawdź szczegółowy status monitoringu"""
     try:
         # Detect provider
-        k3d_clusters = k3d_service.list_clusters()
-        provider = "k3d" if cluster_name in k3d_clusters else "kind"
-        context = f"{provider}-{cluster_name}"
+        provider = detect_cluster_provider(cluster_name)
+        context = get_cluster_context(cluster_name, provider)
         
         # Get pods in monitoring namespace
         kubectl_result = subprocess.run([
@@ -2212,9 +2355,8 @@ async def start_port_forward(cluster_name: str):
             raise HTTPException(status_code=404, detail=f"Brak portów dla klastra {cluster_name}")
         
         # Detect provider
-        k3d_clusters = k3d_service.list_clusters()
-        provider = "k3d" if cluster_name in k3d_clusters else "kind"
-        context = f"{provider}-{cluster_name}"
+        provider = detect_cluster_provider(cluster_name)
+        context = get_cluster_context(cluster_name, provider)
         
         prometheus_port = ports.get("prometheus")
         grafana_port = ports.get("grafana")
@@ -3377,3 +3519,45 @@ async def get_eks_cluster_details(cluster_name: str, request: Request):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting EKS cluster details: {str(e)}")
+
+@app.post("/api/v1/eks-cluster/{cluster_name}/install-metrics")
+async def install_metrics_server_on_eks(cluster_name: str):
+    """
+    Zainstaluj Metrics Server na istniejącym klastrze EKS
+    """
+    try:
+        # Pobierz zapisane credentials
+        credentials = eks_service.get_cluster_credentials(cluster_name)
+        if not credentials:
+            raise HTTPException(status_code=404, detail=f"Credentials not found for cluster {cluster_name}")
+        
+        # Przygotuj środowisko z credentials
+        env = os.environ.copy()
+        env.update({
+            "AWS_ACCESS_KEY_ID": credentials["aws_access_key"],
+            "AWS_SECRET_ACCESS_KEY": credentials["aws_secret_key"],
+            "AWS_DEFAULT_REGION": credentials["region"]
+        })
+        
+        region = credentials["region"]
+        
+        print(f"📊 Instalowanie Metrics Server na klastrze {cluster_name}...")
+        
+        # Użyj metody z eks_service która ma poprawną logikę
+        success = eks_service._install_metrics_server(cluster_name, region, env, context=None)
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"Metrics Server został zainstalowany na klastrze {cluster_name}. Czekaj ~2 minuty aż będzie gotowy."
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Nie udało się zainstalować Metrics Server - sprawdź logi backendu"
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error installing Metrics Server: {str(e)}")
