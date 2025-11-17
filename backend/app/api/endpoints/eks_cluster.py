@@ -167,3 +167,48 @@ async def get_eks_cluster_status(
             status_code=500,
             detail=f"Error getting cluster status: {str(e)}"
         )
+
+
+class EksScaleRequest(BaseModel):
+    """Request do skalowania klastra EKS"""
+    region: str = Field(..., description="Region AWS")
+    aws_access_key: str = Field(..., description="AWS Access Key ID")
+    aws_secret_key: str = Field(..., description="AWS Secret Access Key")
+    desired_size: int = Field(..., ge=0, le=20, description="Docelowa liczba worker nodes")
+    min_size: Optional[int] = Field(None, ge=0, description="Minimalna liczba nodes (opcjonalne)")
+    max_size: Optional[int] = Field(None, ge=1, le=20, description="Maksymalna liczba nodes (opcjonalne)")
+    instance_types: Optional[list[str]] = Field(None, description="Lista typów instancji EC2 (np. ['t3.medium', 't3.large'])")
+
+
+@router.post("/{cluster_name}/scale")
+async def scale_eks_cluster(cluster_name: str, request: EksScaleRequest):
+    """
+    Skaluj klaster EKS przez zmianę liczby worker nodes i/lub typu instancji
+    
+    Zmienia desired_size node group. Opcjonalnie można zmienić min/max size oraz typ instancji.
+    """
+    try:
+        result = eks_service.scale_cluster(
+            cluster_name=cluster_name,
+            region=request.region,
+            aws_access_key=request.aws_access_key,
+            aws_secret_key=request.aws_secret_key,
+            desired_size=request.desired_size,
+            min_size=request.min_size,
+            max_size=request.max_size,
+            instance_types=request.instance_types
+        )
+        
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=500,
+                detail=result.get("error", "Failed to scale EKS cluster")
+            )
+        
+        return result
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error scaling EKS cluster: {str(e)}"
+        )

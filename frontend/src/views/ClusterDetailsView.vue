@@ -706,7 +706,18 @@ const refreshData = async () => {
 }
 
 const goToScaling = () => {
-  router.push(`/clusters/${clusterName}/scale`)
+  const query: any = {}
+  if (isEksCluster.value) {
+    query.provider = 'eks'
+    query.region = route.query.region
+    if (clusterDetails.value?.node_count) {
+      query.nodeCount = clusterDetails.value.node_count
+    }
+  }
+  router.push({ 
+    path: `/clusters/${clusterName}/scale`,
+    query
+  })
 }
 
 const deleteCluster = async () => {

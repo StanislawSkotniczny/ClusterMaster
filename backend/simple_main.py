@@ -3561,3 +3561,51 @@ async def install_metrics_server_on_eks(cluster_name: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error installing Metrics Server: {str(e)}")
+
+
+@app.post("/api/v1/eks-cluster/{cluster_name}/scale")
+async def scale_eks_cluster(cluster_name: str, request: dict):
+    """
+    Skaluj klaster EKS przez zmianę liczby worker nodes i/lub typu instancji
+    """
+    try:
+        region = request.get("region")
+        aws_access_key = request.get("aws_access_key")
+        aws_secret_key = request.get("aws_secret_key")
+        desired_size = request.get("desired_size")
+        min_size = request.get("min_size")
+        max_size = request.get("max_size")
+        instance_types = request.get("instance_types")
+        
+        if not all([region, aws_access_key, aws_secret_key]) or desired_size is None:
+            raise HTTPException(status_code=400, detail="Missing required parameters")
+        
+        result = eks_service.scale_cluster(
+            cluster_name=cluster_name,
+            region=region,
+            aws_access_key=aws_access_key,
+            aws_secret_key=aws_secret_key,
+            desired_size=desired_size,
+            min_size=min_size,
+            max_size=max_size,
+            instance_types=instance_types
+        )
+        
+        if not result.get("success"):
+            error_msg = result.get("error", "Failed to scale EKS cluster")
+            print(f"❌ EKS Scaling failed: {error_msg}")
+            raise HTTPException(
+                status_code=500,
+                detail=error_msg
+            )
+        
+        print(f"✅ EKS Scaling successful: {result}")
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Exception in scale_eks_cluster: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error scaling EKS cluster: {str(e)}")

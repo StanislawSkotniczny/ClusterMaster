@@ -327,20 +327,55 @@ export class ApiService {
 
     static async applyClusterScaling(clusterName: string, config: {
         workerNodes: number
-        cpuPerNode: number
-        ramPerNode: number
+        cpuPerNode?: number
+        ramPerNode?: number
+        provider?: string  // 'eks' dla EKS clusters
+        region?: string    // dla EKS
+        awsAccessKey?: string
+        awsSecretKey?: string
+        minSize?: number   // dla EKS
+        maxSize?: number   // dla EKS
+        instanceTypes?: string[]  // dla EKS - typy instancji EC2
     }): Promise<{
         success: boolean
-        provider?: string  // 'kind' or 'k3d'
+        provider?: string  // 'kind', 'k3d', or 'eks'
         message?: string
         operations?: string[]
         info?: string      // Success info (e.g., k3d live scaling notice)
         warning?: string   // Warnings (e.g., Kind recreate warning)
         error?: string
     }> {
+        // Check if this is an EKS cluster
+        if (config.provider === 'eks' && config.region && config.awsAccessKey && config.awsSecretKey) {
+            // Use EKS-specific endpoint
+            const payload: any = {
+                region: config.region,
+                aws_access_key: config.awsAccessKey,
+                aws_secret_key: config.awsSecretKey,
+                desired_size: config.workerNodes,
+                min_size: config.minSize,
+                max_size: config.maxSize
+            }
+            
+            // Add instance types if provided
+            if (config.instanceTypes && config.instanceTypes.length > 0) {
+                payload.instance_types = config.instanceTypes
+            }
+            
+            return this.request(`/eks-cluster/${clusterName}/scale`, {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            })
+        }
+        
+        // Local cluster (kind/k3d)
         return this.request(`/clusters/${clusterName}/scaling/apply`, {
             method: 'POST',
-            body: JSON.stringify(config)
+            body: JSON.stringify({
+                workerNodes: config.workerNodes,
+                cpuPerNode: config.cpuPerNode,
+                ramPerNode: config.ramPerNode
+            })
         })
     }
 

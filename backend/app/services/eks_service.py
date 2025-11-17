@@ -508,9 +508,16 @@ class EksService:
             )
             
             node_count = 0
+            instance_types = []
             if ng_result.returncode == 0:
                 ng_data = json.loads(ng_result.stdout)
-                node_count = len(ng_data.get("nodegroups", []))
+                nodegroups = ng_data.get("nodegroups", [])
+                node_count = len(nodegroups)
+                
+                # Pobierz typ instancji z pierwszej (głównej) node group
+                if nodegroups:
+                    ng_name = nodegroups[0]
+                    instance_types = self._get_nodegroup_instance_types(cluster_name, ng_name, env)
             
             # Pobierz CPU/RAM usage z kubectl top nodes jeśli Metrics Server zainstalowany
             cpu_usage = 0.0
@@ -600,6 +607,7 @@ class EksService:
                 "provider": "eks",
                 "kubernetes_version": status_info.get("version"),
                 "node_count": len(nodes),
+                "instance_types": instance_types,  # Dodane: typ instancji node group
                 "api_endpoint": status_info.get("endpoint"),
                 "created_at": status_info.get("created_at"),
                 "context": context,
@@ -1096,6 +1104,399 @@ output "cluster_security_group_id" {{
         except Exception as e:
             print(f"⚠️ Błąd wczytywania credentials: {e}")
             return None
+    
+    def _get_nodegroup_instance_types(self, cluster_name: str, nodegroup_name: str, env: dict) -> list:
+        """Pobierz obecny typ instancji dla node group"""
+        try:
+            describe_result = subprocess.run(
+                ["aws", "eks", "describe-nodegroup", 
+                 "--cluster-name", cluster_name,
+                 "--nodegroup-name", nodegroup_name,
+                 "--output", "json"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30
+            )
+            
+            if describe_result.returncode == 0:
+                data = json.loads(describe_result.stdout)
+                return data.get("nodegroup", {}).get("instanceTypes", [])
+            return []
+        except Exception as e:
+            print(f"   ⚠️ Nie udało się pobrać typu instancji: {e}")
+            return []
+
+    def _create_new_nodegroup(
+        self,
+        cluster_name: str,
+        new_nodegroup_name: str,
+        instance_types: list,
+        desired_size: int,
+        min_size: int,
+        max_size: int,
+        subnet_ids: list,
+        env: dict
+    ) -> Dict[str, Any]:
+        """Utwórz nową node group z nowym typem instancji"""
+        try:
+            print(f"   📦 Tworzę nową node group: {new_nodegroup_name}")
+            print(f"   Instance types: {instance_types}")
+            
+            # Pobierz IAM role ARN ze starej node group
+            list_result = subprocess.run(
+                ["aws", "eks", "list-nodegroups", "--cluster-name", cluster_name, "--output", "json"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30
+            )
+            
+            if list_result.returncode != 0:
+                return {"success": False, "error": "Nie udało się pobrać node groups"}
+            
+            nodegroups = json.loads(list_result.stdout).get("nodegroups", [])
+            if not nodegroups:
+                return {"success": False, "error": "Brak node groups"}
+            
+            old_nodegroup = nodegroups[0]
+            
+            # Pobierz szczegóły starej node group
+            describe_result = subprocess.run(
+                ["aws", "eks", "describe-nodegroup",
+                 "--cluster-name", cluster_name,
+                 "--nodegroup-name", old_nodegroup,
+                 "--output", "json"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30
+            )
+            
+            if describe_result.returncode != 0:
+                return {"success": False, "error": "Nie udało się opisać node group"}
+            
+            old_ng_data = json.loads(describe_result.stdout).get("nodegroup", {})
+            node_role_arn = old_ng_data.get("nodeRole")
+            disk_size = old_ng_data.get("diskSize", 20)
+            
+            if not node_role_arn:
+                return {"success": False, "error": "Nie znaleziono IAM role"}
+            
+            # Utwórz nową node group
+            create_cmd = [
+                "aws", "eks", "create-nodegroup",
+                "--cluster-name", cluster_name,
+                "--nodegroup-name", new_nodegroup_name,
+                "--scaling-config", json.dumps({
+                    "minSize": min_size,
+                    "maxSize": max_size,
+                    "desiredSize": desired_size
+                }),
+                "--disk-size", str(disk_size),
+                "--subnets"] + subnet_ids + [
+                "--instance-types"] + instance_types + [
+                "--node-role", node_role_arn,
+                "--output", "json"
+            ]
+            
+            create_result = subprocess.run(
+                create_cmd,
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=120
+            )
+            
+            if create_result.returncode != 0:
+                return {
+                    "success": False,
+                    "error": f"Nie udało się utworzyć node group: {create_result.stderr}"
+                }
+            
+            print(f"   ✅ Node group {new_nodegroup_name} utworzona, czekam na gotowość...")
+            return {"success": True, "nodegroup_name": new_nodegroup_name}
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _wait_for_nodegroup_ready(self, cluster_name: str, nodegroup_name: str, env: dict, timeout: int = 600) -> bool:
+        """Czekaj aż node group będzie w stanie ACTIVE"""
+        import time
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            try:
+                result = subprocess.run(
+                    ["aws", "eks", "describe-nodegroup",
+                     "--cluster-name", cluster_name,
+                     "--nodegroup-name", nodegroup_name,
+                     "--output", "json"],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    timeout=30
+                )
+                
+                if result.returncode == 0:
+                    data = json.loads(result.stdout)
+                    status = data.get("nodegroup", {}).get("status")
+                    print(f"   ⏳ Status node group: {status}")
+                    
+                    if status == "ACTIVE":
+                        print(f"   ✅ Node group jest gotowa!")
+                        return True
+                    elif status in ["CREATE_FAILED", "DELETE_FAILED"]:
+                        print(f"   ❌ Node group w stanie błędu: {status}")
+                        return False
+                
+                time.sleep(30)  # Czekaj 30 sekund przed kolejnym sprawdzeniem
+                
+            except Exception as e:
+                print(f"   ⚠️ Błąd sprawdzania statusu: {e}")
+                time.sleep(30)
+        
+        print(f"   ⏱️ Timeout: Node group nie jest gotowa po {timeout}s")
+        return False
+
+    def _delete_old_nodegroup(self, cluster_name: str, nodegroup_name: str, env: dict) -> bool:
+        """Usuń starą node group"""
+        try:
+            print(f"   🗑️ Usuwam starą node group: {nodegroup_name}")
+            print(f"   💡 Kubernetes automatycznie przeniesie pody na nowe węzły")
+            
+            # AWS automatycznie przeskaluje do 0 podczas usuwania
+            # Nie trzeba ręcznie skalować (maxSize nie może być 0)
+            delete_result = subprocess.run(
+                ["aws", "eks", "delete-nodegroup",
+                 "--cluster-name", cluster_name,
+                 "--nodegroup-name", nodegroup_name,
+                 "--output", "json"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=60
+            )
+            
+            if delete_result.returncode != 0:
+                print(f"   ⚠️ Nie udało się usunąć node group: {delete_result.stderr}")
+                return False
+            
+            print(f"   ✅ Node group {nodegroup_name} usuwana (proces trwa ~5 min w tle)")
+            print(f"   📋 Pody zostały przeniesione na nową node group")
+            return True
+            
+        except Exception as e:
+            print(f"   ⚠️ Błąd usuwania node group: {e}")
+            return False
+
+    def scale_cluster(
+        self,
+        cluster_name: str,
+        region: str,
+        aws_access_key: str,
+        aws_secret_key: str,
+        desired_size: int,
+        min_size: Optional[int] = None,
+        max_size: Optional[int] = None,
+        instance_types: Optional[list] = None
+    ) -> Dict[str, Any]:
+        """
+        Skaluj klaster EKS przez zmianę liczby worker nodes i/lub typu instancji
+        
+        Args:
+            cluster_name: Nazwa klastra EKS
+            region: Region AWS
+            aws_access_key: AWS Access Key ID
+            aws_secret_key: AWS Secret Access Key
+            desired_size: Docelowa liczba worker nodes
+            min_size: Minimalna liczba nodes (opcjonalne)
+            max_size: Maksymalna liczba nodes (opcjonalne)
+            instance_types: Lista typów instancji EC2 (opcjonalne, np. ['t3.medium'])
+            
+        Returns:
+            Dict z wynikiem operacji
+        """
+        try:
+            env = os.environ.copy()
+            env.update({
+                "AWS_ACCESS_KEY_ID": aws_access_key,
+                "AWS_SECRET_ACCESS_KEY": aws_secret_key,
+                "AWS_DEFAULT_REGION": region
+            })
+            
+            print(f"🔧 Skalowanie klastra EKS: {cluster_name}")
+            print(f"   Region: {region}")
+            print(f"   Desired size: {desired_size}")
+            
+            # Pobierz listę node groups
+            list_result = subprocess.run(
+                ["aws", "eks", "list-nodegroups", "--cluster-name", cluster_name, "--output", "json"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30
+            )
+            
+            if list_result.returncode != 0:
+                return {
+                    "success": False,
+                    "error": f"Failed to list node groups: {list_result.stderr}"
+                }
+            
+            data = json.loads(list_result.stdout)
+            nodegroups = data.get("nodegroups", [])
+            
+            if not nodegroups:
+                return {
+                    "success": False,
+                    "error": "No node groups found in cluster"
+                }
+            
+            # Skaluj pierwszy node group (w większości przypadków jest tylko jeden)
+            nodegroup_name = nodegroups[0]
+            print(f"   Node group: {nodegroup_name}")
+            
+            # Sprawdź czy zmiana typu instancji jest wymagana
+            current_instance_types = self._get_nodegroup_instance_types(cluster_name, nodegroup_name, env)
+            instance_type_changed = False
+            
+            if instance_types and len(instance_types) > 0:
+                # Porównaj obecny typ z żądanym
+                if set(current_instance_types) != set(instance_types):
+                    instance_type_changed = True
+                    print(f"   🔄 Zmiana typu instancji: {current_instance_types} → {instance_types}")
+                    
+                    # Pobierz subnety z klastra
+                    describe_cluster = subprocess.run(
+                        ["aws", "eks", "describe-cluster", "--name", cluster_name, "--output", "json"],
+                        capture_output=True,
+                        text=True,
+                        env=env,
+                        timeout=30
+                    )
+                    
+                    if describe_cluster.returncode != 0:
+                        return {
+                            "success": False,
+                            "error": "Nie udało się pobrać informacji o klastrze",
+                            "cluster_name": cluster_name
+                        }
+                    
+                    cluster_data = json.loads(describe_cluster.stdout)
+                    subnet_ids = cluster_data.get("cluster", {}).get("resourcesVpcConfig", {}).get("subnetIds", [])
+                    
+                    if not subnet_ids:
+                        return {
+                            "success": False,
+                            "error": "Nie znaleziono subnetów dla klastra",
+                            "cluster_name": cluster_name
+                        }
+                    
+                    # Utwórz nową node group z timestampem
+                    import time
+                    new_nodegroup_name = f"{cluster_name}-nodes-{int(time.time())}"
+                    
+                    # Utwórz nową node group
+                    create_result = self._create_new_nodegroup(
+                        cluster_name=cluster_name,
+                        new_nodegroup_name=new_nodegroup_name,
+                        instance_types=instance_types,
+                        desired_size=desired_size,
+                        min_size=min_size if min_size is not None else 1,
+                        max_size=max_size if max_size is not None else desired_size * 2,
+                        subnet_ids=subnet_ids,
+                        env=env
+                    )
+                    
+                    if not create_result.get("success"):
+                        return {
+                            "success": False,
+                            "error": create_result.get("error", "Nie udało się utworzyć node group"),
+                            "cluster_name": cluster_name
+                        }
+                    
+                    # Czekaj aż nowa node group będzie gotowa
+                    if not self._wait_for_nodegroup_ready(cluster_name, new_nodegroup_name, env):
+                        return {
+                            "success": False,
+                            "error": "Nowa node group nie jest gotowa po timeout",
+                            "cluster_name": cluster_name
+                        }
+                    
+                    # Usuń starą node group
+                    self._delete_old_nodegroup(cluster_name, nodegroup_name, env)
+                    
+                    return {
+                        "success": True,
+                        "message": f"Cluster '{cluster_name}' scaled with new instance type",
+                        "cluster_name": cluster_name,
+                        "old_nodegroup": nodegroup_name,
+                        "new_nodegroup": new_nodegroup_name,
+                        "instance_types": instance_types,
+                        "desired_size": desired_size,
+                        "min_size": min_size,
+                        "max_size": max_size,
+                        "status": "node group replaced"
+                    }
+            
+            # Jeśli nie ma zmiany typu instancji, wykonaj zwykłe skalowanie
+            print(f"   📊 Zwykłe skalowanie bez zmiany typu instancji")
+            
+            # Przygotuj scaling-config JSON
+            scaling_config = {"desiredSize": desired_size}
+            if min_size is not None:
+                scaling_config["minSize"] = min_size
+            if max_size is not None:
+                scaling_config["maxSize"] = max_size
+            
+            print(f"   Scaling config: {scaling_config}")
+            
+            # Wykonaj update
+            update_result = subprocess.run(
+                ["aws", "eks", "update-nodegroup-config",
+                 "--cluster-name", cluster_name,
+                 "--nodegroup-name", nodegroup_name,
+                 "--scaling-config", json.dumps(scaling_config),
+                 "--output", "json"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=60
+            )
+            
+            if update_result.returncode != 0:
+                return {
+                    "success": False,
+                    "error": f"Failed to update node group: {update_result.stderr}",
+                    "cluster_name": cluster_name
+                }
+            
+            print(f"   ✅ Skalowanie rozpoczęte")
+            
+            return {
+                "success": True,
+                "message": f"Cluster '{cluster_name}' scaling initiated",
+                "cluster_name": cluster_name,
+                "nodegroup": nodegroup_name,
+                "desired_size": desired_size,
+                "min_size": min_size,
+                "max_size": max_size,
+                "status": "scaling in progress"
+            }
+            
+        except subprocess.TimeoutExpired:
+            return {
+                "success": False,
+                "error": "Scaling operation timed out",
+                "cluster_name": cluster_name
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "cluster_name": cluster_name
+            }
 
 
 eks_service = EksService()
