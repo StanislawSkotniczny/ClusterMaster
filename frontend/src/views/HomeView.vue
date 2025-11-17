@@ -943,10 +943,40 @@ const loadAwsClusters = async () => {
       })
     })
     
-    await response.json()
+    const data = await response.json()
+    
+    console.log('AWS EKS Response:', data)
+    
+    if (data.success && data.clusters) {
+      // Add EKS clusters to clusters store with provider='eks'
+      const eksClusters = data.clusters.map((cluster: any) => ({
+        name: cluster.name,
+        provider: 'eks',
+        status: cluster.status,
+        region: cluster.region,
+        endpoint: cluster.endpoint,
+        version: cluster.version,
+        node_count: cluster.nodegroups?.[0]?.desiredSize || 0,
+        monitoring: {
+          installed: false // EKS monitoring is separate
+        }
+      }))
+      
+      // Update clusters store - remove old EKS clusters and add new ones
+      clustersStore.clusters = [
+        ...clustersStore.clusters.filter(c => c.provider !== 'eks'),
+        ...eksClusters
+      ]
+      
+      console.log('Added EKS clusters to store:', eksClusters)
+    } else {
+      console.error('Failed to load EKS clusters:', data.error)
+      alert('Błąd podczas ładowania klastrów EKS: ' + (data.error || 'Nieznany błąd'))
+    }
    
   } catch (error) {
     console.error('Błąd ładowania klastrów AWS:', error)
+    alert('Błąd połączenia z AWS. Sprawdź swoje credentials.')
   } finally {
     awsLoading.value = false
   }
