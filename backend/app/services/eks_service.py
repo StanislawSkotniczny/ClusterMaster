@@ -353,8 +353,29 @@ class EksService:
             if not ng_deleted:
                 print(f"  ⚠️  Nie wszystkie node groups zostały usunięte")
             
-            print(f"  → Oczekiwanie 60s na usunięcie node groups...")
-            time.sleep(60)
+            # Poczekaj na usunięcie node groups tylko jeśli były do usunięcia
+            if ng_deleted:
+                print(f"  → Oczekiwanie 60s na usunięcie node groups...")
+                time.sleep(60)
+            
+            # Sprawdź czy klaster jeszcze istnieje
+            check_result = subprocess.run(
+                ["aws", "eks", "describe-cluster", "--name", cluster_name, "--output", "json"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30
+            )
+            
+            if check_result.returncode != 0:
+                if "ResourceNotFoundException" in check_result.stderr:
+                    print(f"  ℹ️  Klaster '{cluster_name}' już nie istnieje")
+                    return {
+                        "success": True,
+                        "message": f"Klaster '{cluster_name}' został już usunięty",
+                        "cluster_name": cluster_name,
+                        "method": "aws_cli_fallback"
+                    }
             
             print(f"  → Usuwanie klastra EKS...")
             result = subprocess.run(
@@ -367,10 +388,12 @@ class EksService:
             
             if result.returncode != 0:
                 if "ResourceNotFoundException" in result.stderr or "NotFound" in result.stderr:
+                    print(f"  ℹ️  Klaster już został usunięty")
                     return {
-                        "success": False,
-                        "error": f"Klaster '{cluster_name}' nie istnieje",
-                        "cluster_name": cluster_name
+                        "success": True,
+                        "message": f"Klaster '{cluster_name}' został już usunięty",
+                        "cluster_name": cluster_name,
+                        "method": "aws_cli_fallback"
                     }
                 
                 return {
@@ -983,8 +1006,14 @@ output "cluster_security_group_id" {{
                 )
                 
                 if ng_result.returncode != 0:
-                    print(f"    ⚠️  Nie udało się usunąć {ng}: {ng_result.stderr}")
-                    all_deleted = False
+                    # Sprawdź czy node group już nie istnieje lub jest w trakcie usuwania
+                    if "ResourceNotFoundException" in ng_result.stderr or "not found" in ng_result.stderr.lower():
+                        print(f"    ℹ️  Node group {ng} już nie istnieje (pominięto)")
+                    elif "ResourceInUseException" in ng_result.stderr and "DELETING" in ng_result.stderr:
+                        print(f"    ℹ️  Node group {ng} jest już w trakcie usuwania")
+                    else:
+                        print(f"    ⚠️  Nie udało się usunąć {ng}: {ng_result.stderr}")
+                        all_deleted = False
                 else:
                     print(f"    ✅ Wysłano żądanie usunięcia: {ng}")
             

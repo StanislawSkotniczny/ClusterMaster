@@ -356,18 +356,18 @@ export class ApiService {
                 min_size: config.minSize,
                 max_size: config.maxSize
             }
-            
+
             // Add instance types if provided
             if (config.instanceTypes && config.instanceTypes.length > 0) {
                 payload.instance_types = config.instanceTypes
             }
-            
+
             return this.request(`/eks-cluster/${clusterName}/scale`, {
                 method: 'POST',
                 body: JSON.stringify(payload)
             })
         }
-        
+
         // Local cluster (kind/k3d)
         return this.request(`/clusters/${clusterName}/scaling/apply`, {
             method: 'POST',
