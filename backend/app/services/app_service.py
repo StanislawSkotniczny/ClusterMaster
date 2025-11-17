@@ -12,6 +12,23 @@ class AppService:
         self.temp_dir.mkdir(exist_ok=True)
         self._ensure_helm_repos()
     
+    def _get_eks_credentials(self, cluster_name: str) -> Optional[Dict[str, str]]:
+        """Get AWS credentials for EKS cluster if it exists"""
+        try:
+            from .eks_service import EksService
+            eks_service = EksService()
+            credentials = eks_service.get_cluster_credentials(cluster_name)
+            if credentials:
+                return {
+                    "AWS_ACCESS_KEY_ID": credentials["aws_access_key"],
+                    "AWS_SECRET_ACCESS_KEY": credentials["aws_secret_key"],
+                    "AWS_DEFAULT_REGION": credentials["region"]
+                }
+            return None
+        except Exception as e:
+            print(f"Could not get EKS credentials for {cluster_name}: {e}")
+            return None
+    
     def _get_cluster_context(self, cluster_name: str) -> str:
         """Get the correct kube-context for the cluster (kind-, k3d-, or EKS)"""
         try:
@@ -243,6 +260,14 @@ class AppService:
                 }
             
             context = self._get_cluster_context(cluster_name)
+            
+            # Prepare environment with AWS credentials if EKS cluster
+            env = os.environ.copy()
+            if 'arn:aws:eks' in context:
+                eks_creds = self._get_eks_credentials(cluster_name)
+                if eks_creds:
+                    env.update(eks_creds)
+                    print(f"🔐 Injected AWS credentials for EKS cluster {cluster_name}")
 
             cmd = [
                 "helm", "list", "--all-namespaces",
@@ -250,7 +275,7 @@ class AppService:
                 "--output", "json"
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=env)
             
             if result.returncode == 0:
                 releases = json.loads(result.stdout) if result.stdout.strip() else []
@@ -297,6 +322,14 @@ class AppService:
             
             context = self._get_cluster_context(cluster_name)
             
+            # Prepare environment with AWS credentials if EKS cluster
+            env = os.environ.copy()
+            if 'arn:aws:eks' in context:
+                eks_creds = self._get_eks_credentials(cluster_name)
+                if eks_creds:
+                    env.update(eks_creds)
+                    print(f"🔐 Injected AWS credentials for EKS cluster {cluster_name}")
+            
             list_cmd = [
                 "helm", "list", "--all-namespaces",
                 "--kube-context", context,
@@ -304,7 +337,7 @@ class AppService:
             ]
             print(f"List command: {' '.join(list_cmd)}")
             
-            list_result = subprocess.run(list_cmd, capture_output=True, text=True, timeout=30)
+            list_result = subprocess.run(list_cmd, capture_output=True, text=True, timeout=30, env=env)
             print(f"List result code: {list_result.returncode}")
             print(f"List stdout: {list_result.stdout}")
             print(f"List stderr: {list_result.stderr}")
@@ -338,7 +371,7 @@ class AppService:
                 ]
                 print(f"Uninstall command: {' '.join(cmd)}")
                 
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
                 print(f"Uninstall result code: {result.returncode}")
                 print(f"Uninstall stdout: {result.stdout}")
                 print(f"Uninstall stderr: {result.stderr}")
@@ -367,8 +400,13 @@ class AppService:
             }
     
     def _cluster_exists(self, cluster_name: str) -> bool:
-        """Check if cluster exists (supports both kind and k3d)"""
+        """Check if cluster exists (supports kind, k3d, and EKS)"""
         try:
+            # Check if it's an EKS cluster by looking for credentials file
+            eks_creds = self._get_eks_credentials(cluster_name)
+            if eks_creds:
+                return True
+            
             # Check k3d clusters
             result = subprocess.run(
                 ["k3d", "cluster", "list", "--output", "json"],
@@ -406,20 +444,27 @@ class AppService:
         try:
             context = self._get_cluster_context(cluster_name)
             
+            # Prepare environment with AWS credentials if EKS cluster
+            env = os.environ.copy()
+            if 'arn:aws:eks' in context:
+                eks_creds = self._get_eks_credentials(cluster_name)
+                if eks_creds:
+                    env.update(eks_creds)
+            
             cmd = [
                 "kubectl", "create", "namespace", namespace,
                 "--context", context,
                 "--dry-run=client", "-o", "yaml"
             ]
             
-            dry_run = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            dry_run = subprocess.run(cmd, capture_output=True, text=True, timeout=10, env=env)
             
             if dry_run.returncode == 0:
                 apply_cmd = [
                     "kubectl", "apply", "--context", context,
                     "-f", "-"
                 ]
-                subprocess.run(apply_cmd, input=dry_run.stdout, capture_output=True, text=True, timeout=10)
+                subprocess.run(apply_cmd, input=dry_run.stdout, capture_output=True, text=True, timeout=10, env=env)
                 
         except Exception as e:
             print(f"Warning: Could not create namespace {namespace}: {e}")
@@ -478,6 +523,14 @@ class AppService:
         try:
             context = self._get_cluster_context(cluster_name)
             
+            # Prepare environment with AWS credentials if EKS cluster
+            env = os.environ.copy()
+            if 'arn:aws:eks' in context:
+                eks_creds = self._get_eks_credentials(cluster_name)
+                if eks_creds:
+                    env.update(eks_creds)
+                    print(f"🔐 Injected AWS credentials for EKS cluster {cluster_name}")
+            
             cmd = [
                 "helm", "install", release_name, chart,
                 "--namespace", namespace,
@@ -503,7 +556,8 @@ class AppService:
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
-                universal_newlines=True
+                universal_newlines=True,
+                env=env  # Pass environment with AWS credentials
             )
             
             # Collect output in real-time

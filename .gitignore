@@ -79,3 +79,4 @@ backend/app/services/__pycache__/k3d_service.cpython-313.pyc
 backend/app/services/__pycache__/helm_service.cpython-313.pyc
 backend/app/services/__pycache__/backup_service.cpython-313.pyc
 backend/app/services/__pycache__/app_service.cpython-313.pyc
+backend/activity_log.json
