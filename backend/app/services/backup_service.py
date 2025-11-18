@@ -22,8 +22,10 @@ class BackupService:
             if env_backup_dir:
                 self.backup_dir = Path(env_backup_dir).expanduser().resolve()
             else:
-                # Default to 'backups' directory in current working directory
-                self.backup_dir = Path.cwd() / "backups"
+                # Default to 'backups' directory relative to backend folder
+                # Find the backend directory (where this service is located)
+                backend_dir = Path(__file__).parent.parent.parent  # app/services -> app -> backend
+                self.backup_dir = backend_dir / "backups"
         
         # Create backup directory if it doesn't exist
         self.backup_dir.mkdir(parents=True, exist_ok=True)
@@ -547,17 +549,23 @@ nodes:
             try:
                 # Extract backup manifest to get metadata
                 with zipfile.ZipFile(backup_file, 'r') as zipf:
+                    # Szukaj backup_manifest.json (kind/k3d) lub backup_info.json (EKS)
+                    manifest = None
                     if 'backup_manifest.json' in zipf.namelist():
                         manifest_content = zipf.read('backup_manifest.json').decode('utf-8')
                         manifest = json.loads(manifest_content)
-                        
+                    elif 'backup_info.json' in zipf.namelist():
+                        manifest_content = zipf.read('backup_info.json').decode('utf-8')
+                        manifest = json.loads(manifest_content)
+                    
+                    if manifest:
                         backup_info = {
                             "backup_name": manifest.get("backup_name", backup_file.stem),
                             "cluster_name": manifest.get("cluster_name", "unknown"),
-                            "created_at": manifest.get("created_at", "unknown"),
+                            "created_at": manifest.get("created_at", manifest.get("backup_time", "unknown")),
                             "size_mb": round(backup_file.stat().st_size / (1024 * 1024), 2),
                             "resources_count": len(manifest.get("resources", [])),
-                            "backup_type": manifest.get("backup_type", "unknown"),
+                            "backup_type": manifest.get("backup_type", manifest.get("provider", "unknown")),
                             "file_path": str(backup_file)
                         }
                         backups.append(backup_info)

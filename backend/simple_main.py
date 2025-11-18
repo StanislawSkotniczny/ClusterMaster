@@ -2563,6 +2563,11 @@ async def change_backup_directory(request: dict):
         }
     
     result = backup_service.change_backup_directory(new_directory)
+    
+    # Ustaw zmienną środowiskową żeby EKS service też używał tej samej lokalizacji
+    if result.get("success"):
+        os.environ["CLUSTER_BACKUP_DIR"] = new_directory
+    
     return result
 
 @app.get("/api/v1/backup/info")
@@ -3609,3 +3614,46 @@ async def scale_eks_cluster(cluster_name: str, request: dict):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error scaling EKS cluster: {str(e)}")
+
+
+@app.post("/api/v1/eks-cluster/{cluster_name}/backup")
+async def backup_eks_cluster(cluster_name: str, request: Request):
+    """
+    Utwórz backup klastra EKS (eksport wszystkich zasobów Kubernetes do YAML)
+    """
+    try:
+        data = await request.json()
+        
+        region = data.get("region")
+        aws_access_key = data.get("aws_access_key")
+        aws_secret_key = data.get("aws_secret_key")
+        backup_name = data.get("backup_name")  # Opcjonalne
+        
+        if not all([region, aws_access_key, aws_secret_key]):
+            raise HTTPException(status_code=400, detail="Missing required AWS credentials")
+        
+        print(f"📦 Creating EKS cluster backup: {cluster_name}")
+        
+        result = eks_service.backup_cluster(
+            cluster_name=cluster_name,
+            region=region,
+            aws_access_key=aws_access_key,
+            aws_secret_key=aws_secret_key,
+            backup_name=backup_name
+        )
+        
+        if not result.get("success"):
+            error_msg = result.get("error", "Failed to create EKS backup")
+            print(f"❌ EKS Backup failed: {error_msg}")
+            raise HTTPException(status_code=500, detail=error_msg)
+        
+        print(f"✅ EKS Backup successful: {result.get('backup_name')}")
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Exception in backup_eks_cluster: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error creating EKS backup: {str(e)}")

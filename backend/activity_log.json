@@ -1,5 +1,19 @@
 [
   {
+    "id": "backup_create_testkindaaa_1763505266",
+    "timestamp": "2025-11-18T23:34:26.316054",
+    "operation_type": "backup_create",
+    "cluster_name": "testkindaaa",
+    "details": "Utworzono backup: testkindaaa_backup_20251118_233426",
+    "status": "success",
+    "metadata": {
+      "backup_name": "testkindaaa_backup_20251118_233426",
+      "output": "",
+      "command": ""
+    },
+    "updated_at": "2025-11-18T23:35:09.192482"
+  },
+  {
     "id": "backup_create_testkindaaa_1761321346",
     "timestamp": "2025-10-24T17:55:46.989802",
     "operation_type": "backup_create",

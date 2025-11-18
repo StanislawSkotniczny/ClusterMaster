@@ -952,7 +952,7 @@ const loadAwsClusters = async () => {
       const eksClusters = data.clusters.map((cluster: any) => ({
         name: cluster.name,
         provider: 'eks',
-        status: cluster.status,
+        status: cluster.status === 'ACTIVE' ? 'Running' : cluster.status,
         region: cluster.region,
         endpoint: cluster.endpoint,
         version: cluster.version,

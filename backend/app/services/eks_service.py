@@ -1527,5 +1527,215 @@ output "cluster_security_group_id" {{
                 "cluster_name": cluster_name
             }
 
+    def backup_cluster(
+        self,
+        cluster_name: str,
+        region: str,
+        aws_access_key: str,
+        aws_secret_key: str,
+        backup_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+    
+        try:
+            from datetime import datetime
+            import tempfile
+            import zipfile
+            
+            env = os.environ.copy()
+            env.update({
+                "AWS_ACCESS_KEY_ID": aws_access_key,
+                "AWS_SECRET_ACCESS_KEY": aws_secret_key,
+                "AWS_DEFAULT_REGION": region
+            })
+            
+            print(f"Tworzenie backupu klastra EKS: {cluster_name}")
+            
+            # Skonfiguruj kubectl dla EKS
+            self._configure_kubectl(cluster_name, region, env)
+
+            if not backup_name:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_name = f"{cluster_name}_eks_backup_{timestamp}"
+
+            # Użyj tego samego katalogu backupów co backup_service
+            # Sprawdź zmienną środowiskową lub użyj domyślnej lokalizacji
+            env_backup_dir = os.environ.get('CLUSTER_BACKUP_DIR')
+            if env_backup_dir:
+                backup_dir = Path(env_backup_dir)
+            else:
+                # Domyślnie: backend/backups
+                backend_dir = Path(__file__).parent.parent.parent
+                backup_dir = backend_dir / "backups"
+            
+            backup_dir.mkdir(exist_ok=True)
+            backup_file = backup_dir / f"{backup_name}.zip"
+            
+            # Pobierz context EKS
+            context = self._get_eks_context(cluster_name, region, env)
+            if not context:
+                return {
+                    "success": False,
+                    "error": "Nie znaleziono kontekstu EKS",
+                    "cluster_name": cluster_name
+                }
+            
+            print(f"Context: {context}")
+            
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                resources_backed_up = []
+
+                resource_types = [
+                    "deployments",
+                    "services",
+                    "configmaps",
+                    "secrets",
+                    "persistentvolumeclaims",
+                    "ingresses",
+                    "statefulsets",
+                    "daemonsets",
+                    "jobs",
+                    "cronjobs",
+                    "horizontalpodautoscalers"
+                ]
+                
+                # Pobierz namespaces
+                print(f"Pobieranie namespaceow...")
+                namespaces = self._get_eks_namespaces(context, env)
+                print(f"Znaleziono {len(namespaces)} namespaceow: {', '.join(namespaces)}")
+                
+                for namespace in namespaces:
+                    for resource_type in resource_types:
+                        try:
+                            result = self._backup_eks_resource(
+                                context=context,
+                                resource_type=resource_type,
+                                namespace=namespace,
+                                output_path=temp_path,
+                                env=env
+                            )
+                            
+                            if result:
+                                resources_backed_up.append({
+                                    "type": resource_type,
+                                    "namespace": namespace,
+                                    "file": result
+                                })
+                        except Exception as e:
+                            print(f"blad backupu {resource_type} w {namespace}: {e}")
+                
+                # Zapisz informacje o backupie
+                backup_info = {
+                    "cluster_name": cluster_name,
+                    "provider": "eks",
+                    "region": region,
+                    "backup_time": datetime.now().isoformat(),
+                    "resources_count": len(resources_backed_up),
+                    "namespaces": namespaces,
+                    "resources": resources_backed_up
+                }
+                
+                backup_info_file = temp_path / "backup_info.json"
+                with open(backup_info_file, 'w') as f:
+                    json.dump(backup_info, f, indent=2)
+                
+                print(f"Kompresowanie backupu...")
+                with zipfile.ZipFile(backup_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                    for file in temp_path.rglob('*'):
+                        if file.is_file():
+                            zipf.write(file, file.relative_to(temp_path))
+                
+                print(f"Backup utworzony: {backup_file}")
+                print(f"Rozmiar: {backup_file.stat().st_size / 1024 / 1024:.2f} MB")
+                
+                return {
+                    "success": True,
+                    "message": f"Backup '{backup_name}' utworzony pomy艣lnie",
+                    "backup_name": backup_name,
+                    "backup_file": str(backup_file),
+                    "size_mb": round(backup_file.stat().st_size / 1024 / 1024, 2),
+                    "resources_count": len(resources_backed_up),
+                    "namespaces": namespaces
+                }
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "cluster_name": cluster_name
+            }
+    
+    def _get_eks_namespaces(self, context: str, env: dict) -> list:
+        """Pobierz liste namespaceow z klastra EKS"""
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", "namespaces", "--context", context, "-o", "jsonpath={.items[*].metadata.name}"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                return result.stdout.strip().split()
+            return ["default", "kube-system"]
+        except:
+            return ["default", "kube-system"]
+    
+    def _backup_eks_resource(
+        self,
+        context: str,
+        resource_type: str,
+        namespace: str,
+        output_path: Path,
+        env: dict
+    ) -> Optional[str]:
+        """Backup konkretnego typu zasobu z namespace"""
+        try:
+            result = subprocess.run(
+                ["kubectl", "get", resource_type, "--context", context, "-n", namespace, "-o", "yaml"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                if "items: []" in result.stdout or "items:\n  []" in result.stdout:
+                    return None
+                
+                output_file = output_path / f"{namespace}_{resource_type}.yaml"
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    f.write(result.stdout)
+                
+                print(f"Backup {resource_type} w {namespace}")
+                return str(output_file.name)
+            
+            return None
+        except Exception as e:
+            print(f"   d: {e}")
+            return None
+    
+    def _get_eks_context(self, cluster_name: str, region: str, env: dict) -> Optional[str]:
+        """Pobierz context kubectl dla klastra EKS"""
+        try:
+            # Pobierz wszystkie konteksty
+            result = subprocess.run(
+                ["kubectl", "config", "get-contexts", "-o", "name"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=10
+            )
+            
+            if result.returncode == 0:
+                contexts = result.stdout.strip().split('\n')
+                for ctx in contexts:
+                    if f":cluster/{cluster_name}" in ctx and f":{region}:" in ctx:
+                        return ctx
+            return f"arn:aws:eks:{region}:*:cluster/{cluster_name}"
+        except:
+            return None
+
 
 eks_service = EksService()
