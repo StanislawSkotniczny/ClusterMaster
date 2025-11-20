@@ -196,8 +196,24 @@
                     <dd class="font-medium text-gray-900 dark:text-gray-100">{{ cluster.node_count || 'N/A' }}</dd>
                   </div>
                   <div class="flex justify-between items-center">
+                    <dt class="text-gray-600 dark:text-gray-400">Provider:</dt>
+                    <dd class="font-semibold text-gray-900 dark:text-gray-100">
+                      <span v-if="cluster.provider === 'eks'" class="inline-flex items-center px-2 py-0.5 rounded-md text-xs bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400">
+                        ☁️ AWS EKS
+                      </span>
+                      <span v-else-if="cluster.provider === 'k3d'" class="inline-flex items-center px-2 py-0.5 rounded-md text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-400">
+                        🐳 k3d
+                      </span>
+                      <span v-else class="inline-flex items-center px-2 py-0.5 rounded-md text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-400">
+                        🔧 kind
+                      </span>
+                    </dd>
+                  </div>
+                  <div class="flex justify-between items-center">
                     <dt class="text-gray-600 dark:text-gray-400">Context:</dt>
-                    <dd class="font-mono text-xs text-gray-900 dark:text-gray-100">{{ cluster.context || `kind-${cluster.name}` }}</dd>
+                    <dd class="font-mono text-xs text-gray-900 dark:text-gray-100 truncate max-w-[200px]" :title="cluster.context || `kind-${cluster.name}`">
+                      {{ cluster.context || `kind-${cluster.name}` }}
+                    </dd>
                   </div>
                   <div v-if="cluster.assigned_ports" class="flex justify-between items-center">
                     <dt class="text-gray-600 dark:text-gray-400">Porty przypisane:</dt>
@@ -226,10 +242,84 @@
                     <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
                       <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
                     </svg>
-                    Zainstalowany
+                    Zainstalowany {{ cluster.provider === 'eks' ? '(CloudWatch)' : '' }}
                   </div>
                   
-                  <div v-if="cluster.assigned_ports" class="space-y-2 text-sm">
+                  <!-- CloudWatch dla EKS -->
+                  <div v-if="cluster.provider === 'eks' && cluster.monitoring?.cloudwatch_url" class="space-y-2 text-sm">
+                    <div class="bg-gradient-to-r from-orange-50 to-yellow-50 dark:from-orange-900/20 dark:to-yellow-900/20 rounded-lg p-3 border border-orange-200 dark:border-orange-800">
+                      <div class="flex items-center mb-2">
+                        <svg class="w-4 h-4 mr-1 text-orange-600 dark:text-orange-400" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"></path>
+                        </svg>
+                        <span class="font-medium text-gray-900 dark:text-gray-100">AWS CloudWatch</span>
+                      </div>
+                      <div class="space-y-1.5">
+                        <a 
+                          :href="cluster.monitoring.cloudwatch_url" 
+                          target="_blank"
+                          class="flex items-center text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+                        >
+                          <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                          </svg>
+                          Container Insights
+                        </a>
+                        <a 
+                          v-if="cluster.monitoring.logs_url"
+                          :href="cluster.monitoring.logs_url" 
+                          target="_blank"
+                          class="flex items-center text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+                        >
+                          <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                          </svg>
+                          CloudWatch Logs
+                        </a>
+                      </div>
+                    </div>
+                    
+                    <!-- Info o metrykach CloudWatch -->
+                    <div class="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-900/50 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                      <div class="flex items-start space-x-2">
+                        <svg class="w-4 h-4 text-blue-500 dark:text-blue-400 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                          <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                        </svg>
+                        <div class="flex-1">
+                          <p class="text-xs font-medium text-gray-900 dark:text-gray-100 mb-1">
+                            📊 Pełne metryki dostępne w AWS Console
+                          </p>
+                          <p class="text-[10px] text-gray-600 dark:text-gray-400 leading-relaxed">
+                            CloudWatch Container Insights zbiera szczegółowe metryki klastra, podów, węzłów i kontenerów. 
+                            Kliknij link "Container Insights" powyżej aby zobaczyć dashboardy w czasie rzeczywistym w AWS Console.
+                          </p>
+                          <div class="mt-2 pt-2 border-t border-gray-300 dark:border-gray-600">
+                            <p class="text-[10px] text-gray-500 dark:text-gray-500 font-medium mb-1">Dostępne metryki:</p>
+                            <div class="flex flex-wrap gap-1">
+                              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                                CPU/Memory
+                              </span>
+                              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">
+                                Network I/O
+                              </span>
+                              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">
+                                Disk I/O
+                              </span>
+                              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300">
+                                Pod Status
+                              </span>
+                              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300">
+                                Node Health
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <!-- Prometheus/Grafana dla lokalnych klastrów -->
+                  <div v-else-if="cluster.assigned_ports" class="space-y-2 text-sm">
                     <div class="flex justify-between items-center">
                       <span class="text-gray-600 dark:text-gray-400">Prometheus:</span>
                       <a 
@@ -250,10 +340,10 @@
                         :{{ cluster.assigned_ports.grafana }}
                       </a>
                     </div>
-                  </div>
-                  
-                  <div class="mt-3 text-xs bg-white dark:bg-gray-800 rounded p-2 text-gray-600 dark:text-gray-400">
-                    <span class="font-medium">Grafana:</span> admin / admin123
+                    
+                    <div class="mt-3 text-xs bg-white dark:bg-gray-800 rounded p-2 text-gray-600 dark:text-gray-400">
+                      <span class="font-medium">Grafana:</span> admin / admin123
+                    </div>
                   </div>
                 </div>
                 
@@ -457,8 +547,8 @@
               </div>
             </div>
 
-            <!-- Detailed monitoring status -->
-            <div v-if="monitoringDetails[cluster.name]" class="mt-6 border-t border-gray-200 dark:border-gray-700 pt-6">
+            <!-- Detailed monitoring status (tylko dla lokalnych klastrów) -->
+            <div v-if="cluster.provider !== 'eks' && monitoringDetails[cluster.name]" class="mt-6 border-t border-gray-200 dark:border-gray-700 pt-6">
               <div class="flex items-center justify-between mb-4">
                 <div class="flex items-center space-x-2">
                   <div class="bg-blue-100 dark:bg-blue-900 p-2 rounded-lg">
@@ -466,7 +556,7 @@
                       <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"></path>
                     </svg>
                   </div>
-                  <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Szczegóły monitoringu</h3>
+                  <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Szczegóły monitoringu (Prometheus & Grafana)</h3>
                 </div>
                 <button
                   @click="delete monitoringDetails[cluster.name]"
@@ -491,14 +581,14 @@
                     <h4 class="font-semibold text-blue-900 dark:text-blue-300">
                       Prometheus
                       <span class="text-sm font-normal text-blue-700 dark:text-blue-400 ml-1">
-                        ({{ monitoringDetails[cluster.name].prometheus.running }}/{{ monitoringDetails[cluster.name].prometheus.pod_count }})
+                        ({{ monitoringDetails[cluster.name]?.prometheus?.running }}/{{ monitoringDetails[cluster.name]?.prometheus?.pod_count }})
                       </span>
                     </h4>
                   </div>
                   
                   <div class="space-y-2">
                     <div 
-                      v-for="pod in monitoringDetails[cluster.name].prometheus.pods" 
+                      v-for="pod in monitoringDetails[cluster.name]?.prometheus?.pods" 
                       :key="pod.name"
                       class="flex justify-between items-center text-sm bg-white dark:bg-gray-800 rounded-lg p-2"
                     >
@@ -528,14 +618,14 @@
                     <h4 class="font-semibold text-orange-900 dark:text-orange-300">
                       Grafana
                       <span class="text-sm font-normal text-orange-700 dark:text-orange-400 ml-1">
-                        ({{ monitoringDetails[cluster.name].grafana.running }}/{{ monitoringDetails[cluster.name].grafana.pod_count }})
+                        ({{ monitoringDetails[cluster.name]?.grafana?.running }}/{{ monitoringDetails[cluster.name]?.grafana?.pod_count }})
                       </span>
                     </h4>
                   </div>
                   
                   <div class="space-y-2">
                     <div 
-                      v-for="pod in monitoringDetails[cluster.name].grafana.pods" 
+                      v-for="pod in monitoringDetails[cluster.name]?.grafana?.pods" 
                       :key="pod.name"
                       class="flex justify-between items-center text-sm bg-white dark:bg-gray-800 rounded-lg p-2"
                     >
@@ -688,6 +778,10 @@ const installingMonitoring = reactive<Record<string, boolean>>({})
 const uninstallingMonitoring = reactive<Record<string, boolean>>({})
 const installingMetrics = reactive<Record<string, boolean>>({})
 const portForwardLoading = reactive<Record<string, boolean>>({})
+const loadingMetrics = reactive<Record<string, boolean>>({})
+
+// CloudWatch metrics data
+const cloudWatchMetrics = reactive<Record<string, any>>({})
 
 // Methods
 const refreshData = async () => {
@@ -731,11 +825,35 @@ const getMonitoringStatus = async (clusterName: string) => {
   
   try {
     const response = await ApiService.getMonitoringStatus(clusterName)
-    monitoringDetails[clusterName] = response
+    
+    // Dla EKS zaktualizuj informacje o monitoringu w obiekcie klastra
+    if (response.provider === 'eks' && response.monitoring) {
+      const clusterIndex = clusters.value.findIndex(c => c.name === clusterName)
+      if (clusterIndex !== -1) {
+        clusters.value[clusterIndex].monitoring = response.monitoring
+      }
+    } else {
+      // Dla lokalnych klastrów przechowuj szczegóły
+      monitoringDetails[clusterName] = response
+    }
   } catch (e: unknown) {
     error.value = `Błąd pobierania statusu monitoringu ${clusterName}: ${getErrorMessage(e)}`
   } finally {
     loadingStatus[clusterName] = false
+  }
+}
+
+const refreshCloudWatchMetrics = async (clusterName: string) => {
+  loadingMetrics[clusterName] = true
+  
+  try {
+    const response = await ApiService.getCloudWatchMetrics(clusterName)
+    cloudWatchMetrics[clusterName] = response
+  } catch (e: unknown) {
+    console.error(`Błąd pobierania metryk CloudWatch dla ${clusterName}:`, e)
+    error.value = `Błąd pobierania metryk CloudWatch: ${getErrorMessage(e)}`
+  } finally {
+    loadingMetrics[clusterName] = false
   }
 }
 
@@ -748,13 +866,25 @@ const installMonitoring = async (clusterName: string) => {
     // Zaktualizuj informacje o klastrze
     const clusterIndex = clusters.value.findIndex(c => c.name === clusterName)
     if (clusterIndex !== -1) {
-      clusters.value[clusterIndex].monitoring = { installed: true }
+      clusters.value[clusterIndex].monitoring = { 
+        installed: true,
+        cloudwatch_url: response.access_info?.cloudwatch_url,
+        logs_url: response.access_info?.logs_url
+      }
     }
     
     // Odśwież dane portów
     await refreshData()
     
-    alert(`Monitoring zainstalowany pomyślnie!\nPrometheus: http://localhost:${response.access_info?.assigned_ports?.prometheus}\nGrafana: http://localhost:${response.access_info?.assigned_ports?.grafana}`)
+    // Różne komunikaty dla EKS i lokalnych klastrów
+    if (response.provider === 'eks' || response.monitoring_type === 'cloudwatch') {
+      alert(`✅ CloudWatch Container Insights zainstalowany!\n\n` +
+            `Monitoring dostępny w AWS CloudWatch Console:\n` +
+            `Region: ${response.access_info?.region}\n\n` +
+            `Kliknij "Otwórz monitoring" żeby zobaczyć metryki.`)
+    } else {
+      alert(`Monitoring zainstalowany pomyślnie!\nPrometheus: http://localhost:${response.access_info?.assigned_ports?.prometheus}\nGrafana: http://localhost:${response.access_info?.assigned_ports?.grafana}`)
+    }
     
   } catch (e: unknown) {
     error.value = `Błąd instalacji monitoringu ${clusterName}: ${getErrorMessage(e)}`
@@ -794,7 +924,21 @@ const uninstallMonitoring = async (clusterName: string) => {
 
 const openMonitoringUrls = async (clusterName: string) => {
   try {
-    // Sprawdź czy port-forward jest aktywny
+    // Znajdź klaster
+    const cluster = clusters.value.find(c => c.name === clusterName)
+    
+    // Dla EKS otwórz CloudWatch
+    if (cluster?.provider === 'eks' && cluster?.monitoring?.cloudwatch_url) {
+      window.open(cluster.monitoring.cloudwatch_url, '_blank')
+      if (cluster.monitoring.logs_url) {
+        setTimeout(() => {
+          window.open(cluster.monitoring.logs_url, '_blank')
+        }, 500)
+      }
+      return
+    }
+    
+    // Dla lokalnych klastrów - sprawdź port-forward
     const portsData = allPortsData.value?.clusters[clusterName]
     
     if (portsData && !portsData.port_forward_active) {
@@ -825,7 +969,7 @@ const openMonitoringUrls = async (clusterName: string) => {
       }
     }
     
-    // Teraz otwórz URL-e
+    // Teraz otwórz URL-e dla lokalnych klastrów
     const response = await ApiService.getClusterPorts(clusterName)
     const urls = response.urls
     
@@ -918,6 +1062,23 @@ const getPodStatusColor = (status: string, ready: boolean) => {
 // Initialize
 onMounted(async () => {
   await refreshData()
+  
+  // Automatycznie sprawdź status monitoringu dla klastrów EKS
+  for (const cluster of clusters.value) {
+    if (cluster.provider === 'eks') {
+      // Sprawdź czy monitoring jest zainstalowany dla EKS
+      try {
+        await getMonitoringStatus(cluster.name)
+        
+        // Jeśli monitoring jest zainstalowany, pobierz metryki
+        if (cluster.monitoring?.installed) {
+          await refreshCloudWatchMetrics(cluster.name)
+        }
+      } catch (e) {
+        console.warn(`Nie udało się sprawdzić statusu monitoringu dla ${cluster.name}:`, e)
+      }
+    }
+  }
   
   // Scroll to cluster if hash is present
   if (window.location.hash) {

@@ -172,6 +172,10 @@ export class ApiService {
         return this.request(`/monitoring/status/${clusterName}`)
     }
 
+    static async getCloudWatchMetrics(clusterName: string) {
+        return this.request(`/monitoring/cloudwatch-metrics/${clusterName}`)
+    }
+
     static async uninstallMonitoring(clusterName: string) {
         return this.request(`/monitoring/uninstall/${clusterName}`, {
             method: 'DELETE',

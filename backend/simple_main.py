@@ -575,26 +575,71 @@ async def get_cluster_details_async(cluster_name: str, include_resources: bool =
         # Sprawdź monitoring
         async def check_monitoring():
             try:
-                # Sprawdź Helm releases zamiast podów - bardziej niezawodne
-                result = await loop.run_in_executor(
-                    executor,
-                    lambda: subprocess.run([
-                        "helm", "list", "--namespace", "monitoring",
-                        "--kube-context", f"{provider}-{cluster_name}",
-                        "--output", "json"
-                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
-                )
-                
-                # Sprawdź czy są oba releases (prometheus i grafana)
-                if result.returncode == 0 and result.stdout.strip():
-                    import json
-                    releases = json.loads(result.stdout)
-                    has_prometheus = any('prometheus' in release.get('name', '').lower() for release in releases)
-                    has_grafana = any('grafana' in release.get('name', '').lower() for release in releases)
-                    cluster_info["monitoring"] = {"installed": bool(has_prometheus and has_grafana)}
+                # Dla EKS sprawdź CloudWatch add-on
+                if provider == "eks":
+                    # Pobierz credentials dla EKS
+                    credentials = eks_service.get_cluster_credentials(cluster_name)
+                    if credentials:
+                        region = credentials["region"]
+                        env = os.environ.copy()
+                        env.update({
+                            "AWS_ACCESS_KEY_ID": credentials["aws_access_key"],
+                            "AWS_SECRET_ACCESS_KEY": credentials["aws_secret_key"],
+                            "AWS_DEFAULT_REGION": region
+                        })
+                        
+                        # Sprawdź CloudWatch Observability add-on
+                        check_result = await loop.run_in_executor(
+                            executor,
+                            lambda: subprocess.run([
+                                "aws", "eks", "describe-addon",
+                                "--cluster-name", cluster_name,
+                                "--addon-name", "amazon-cloudwatch-observability",
+                                "--region", region,
+                                "--output", "json"
+                            ], capture_output=True, text=True, env=env, timeout=10)
+                        )
+                        
+                        if check_result.returncode == 0:
+                            import json
+                            addon_data = json.loads(check_result.stdout)
+                            addon_status = addon_data.get("addon", {}).get("status", "UNKNOWN")
+                            
+                            container_insights_url = f"https://console.aws.amazon.com/cloudwatch/home?region={region}#container-insights:infrastructure"
+                            logs_url = f"https://console.aws.amazon.com/cloudwatch/home?region={region}#logsV2:log-groups"
+                            
+                            cluster_info["monitoring"] = {
+                                "installed": addon_status == "ACTIVE",
+                                "cloudwatch_url": container_insights_url,
+                                "logs_url": logs_url,
+                                "addon_status": addon_status
+                            }
+                        else:
+                            cluster_info["monitoring"] = {"installed": False}
+                    else:
+                        cluster_info["monitoring"] = {"installed": False}
                 else:
-                    cluster_info["monitoring"] = {"installed": False}
+                    # Dla Kind/k3d sprawdź Helm releases
+                    result = await loop.run_in_executor(
+                        executor,
+                        lambda: subprocess.run([
+                            "helm", "list", "--namespace", "monitoring",
+                            "--kube-context", f"{provider}-{cluster_name}",
+                            "--output", "json"
+                        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
+                    )
+                    
+                    # Sprawdź czy są oba releases (prometheus i grafana)
+                    if result.returncode == 0 and result.stdout.strip():
+                        import json
+                        releases = json.loads(result.stdout)
+                        has_prometheus = any('prometheus' in release.get('name', '').lower() for release in releases)
+                        has_grafana = any('grafana' in release.get('name', '').lower() for release in releases)
+                        cluster_info["monitoring"] = {"installed": bool(has_prometheus and has_grafana)}
+                    else:
+                        cluster_info["monitoring"] = {"installed": False}
             except Exception as e:
+                print(f"[check_monitoring] Error for {cluster_name}: {e}")
                 cluster_info["monitoring"] = {"installed": False}
         
         # Pobierz porty
@@ -2089,73 +2134,155 @@ async def install_monitoring_endpoint(cluster_name: str):
 
 @app.delete("/api/v1/monitoring/uninstall/{cluster_name}")
 async def uninstall_monitoring_endpoint(cluster_name: str):
-    """Usuń monitoring z klastra (Prometheus i Grafana)"""
+    """Usuń monitoring z klastra (CloudWatch dla EKS, Prometheus+Grafana dla Kind/k3d)"""
     try:
-        # Usuń prometheus
-        prometheus_result = app_service.uninstall_app(cluster_name, "prometheus")
+        # Wykryj typ klastra
+        provider = detect_cluster_provider(cluster_name)
         
-        # Usuń grafana
-        grafana_result = app_service.uninstall_app(cluster_name, "grafana")
+        # Dla EKS usuń CloudWatch Observability add-on
+        if provider == "eks":
+            credentials = eks_service.get_cluster_credentials(cluster_name)
+            if not credentials:
+                raise HTTPException(status_code=404, detail=f"Nie znaleziono credentials dla klastra {cluster_name}")
+            
+            region = credentials["region"]
+            env = os.environ.copy()
+            env.update({
+                "AWS_ACCESS_KEY_ID": credentials["aws_access_key"],
+                "AWS_SECRET_ACCESS_KEY": credentials["aws_secret_key"],
+                "AWS_DEFAULT_REGION": region
+            })
+            
+            # Usuń CloudWatch Observability add-on
+            delete_result = subprocess.run([
+                "aws", "eks", "delete-addon",
+                "--cluster-name", cluster_name,
+                "--addon-name", "amazon-cloudwatch-observability",
+                "--region", region
+            ], capture_output=True, text=True, env=env, timeout=60, encoding='utf-8', errors='replace')
+            
+            if delete_result.returncode == 0:
+                # Log operation
+                activity_log.log_operation(
+                    operation_type="monitoring_uninstall",
+                    cluster_name=cluster_name,
+                    details="Usunięto CloudWatch Observability add-on",
+                    status="success"
+                )
+                
+                # Send notification
+                await notification_service.send_notification(
+                    user_id="default_user",
+                    title="Monitoring odinstalowany",
+                    message=f"CloudWatch Container Insights został usunięty z klastra EKS '{cluster_name}'",
+                    notification_type="monitoring_uninstalled",
+                    severity="info",
+                    metadata={"cluster": cluster_name, "provider": "eks"}
+                )
+                
+                return {
+                    "success": True,
+                    "message": "CloudWatch Observability add-on został usunięty. Pody CloudWatch zostaną automatycznie usunięte.",
+                    "provider": "eks",
+                    "note": "Historyczne dane metryk i logi pozostają w CloudWatch. Możesz je usunąć ręcznie w AWS Console jeśli chcesz."
+                }
+            else:
+                error_msg = delete_result.stderr or "Nieznany błąd"
+                
+                # Log error
+                activity_log.log_operation(
+                    operation_type="monitoring_uninstall",
+                    cluster_name=cluster_name,
+                    details="Błąd usuwania CloudWatch add-on",
+                    status="error",
+                    metadata={"error": error_msg}
+                )
+                
+                # Send error notification
+                await notification_service.send_notification(
+                    user_id="default_user",
+                    title="Błąd odinstalowania monitoringu",
+                    message=f"Nie udało się odinstalować CloudWatch z klastra '{cluster_name}': {error_msg}",
+                    notification_type="monitoring_uninstall_error",
+                    severity="error",
+                    metadata={"cluster": cluster_name, "error": error_msg}
+                )
+                
+                return {
+                    "success": False,
+                    "error": f"Błąd usuwania CloudWatch add-on: {error_msg}"
+                }
         
-        # Sprawdź czy oba się udały
-        if prometheus_result.get("success") and grafana_result.get("success"):
-            # Usuń przypisane porty
-            port_manager.release_ports(cluster_name)
-            
-            # Log operation
-            activity_log.log_operation(
-                operation_type="monitoring_uninstall",
-                cluster_name=cluster_name,
-                details="Usunięto Prometheus + Grafana",
-                status="success"
-            )
-            
-            # Send notification
-            await notification_service.send_notification(
-                title="Monitoring odinstalowany",
-                message=f"Monitoring (Prometheus + Grafana) został usunięty z klastra '{cluster_name}'",
-                notification_type="monitoring_uninstalled",
-                severity="info",
-                metadata={"cluster": cluster_name}
-            )
-            
-            return {
-                "success": True,
-                "message": "Monitoring został usunięty",
-                "prometheus": prometheus_result,
-                "grafana": grafana_result
-            }
+        # Dla Kind/k3d usuń Helm releases (Prometheus + Grafana)
         else:
-            errors = []
-            if not prometheus_result.get("success"):
-                errors.append(f"Prometheus: {prometheus_result.get('error', 'Unknown error')}")
-            if not grafana_result.get("success"):
-                errors.append(f"Grafana: {grafana_result.get('error', 'Unknown error')}")
+            # Usuń prometheus
+            prometheus_result = app_service.uninstall_app(cluster_name, "prometheus")
             
-            error_message = "; ".join(errors)
+            # Usuń grafana
+            grafana_result = app_service.uninstall_app(cluster_name, "grafana")
             
-            # Log operation error
-            activity_log.log_operation(
-                operation_type="monitoring_uninstall",
-                cluster_name=cluster_name,
-                details="Błąd podczas usuwania monitoringu",
-                status="error",
-                metadata={"error": error_message}
-            )
-            
-            # Send error notification
-            await notification_service.send_notification(
-                title="Błąd odinstalowania monitoringu",
-                message=f"Nie udało się odinstalować monitoringu z klastra '{cluster_name}': {error_message}",
-                notification_type="monitoring_uninstall_error",
-                severity="error",
-                metadata={"cluster": cluster_name, "error": error_message}
-            )
-            
-            return {
-                "success": False,
-                "error": error_message
-            }
+            # Sprawdź czy oba się udały
+            if prometheus_result.get("success") and grafana_result.get("success"):
+                # Usuń przypisane porty
+                port_manager.release_ports(cluster_name)
+                
+                # Log operation
+                activity_log.log_operation(
+                    operation_type="monitoring_uninstall",
+                    cluster_name=cluster_name,
+                    details="Usunięto Prometheus + Grafana",
+                    status="success"
+                )
+                
+                # Send notification
+                await notification_service.send_notification(
+                    user_id="default_user",
+                    title="Monitoring odinstalowany",
+                    message=f"Monitoring (Prometheus + Grafana) został usunięty z klastra '{cluster_name}'",
+                    notification_type="monitoring_uninstalled",
+                    severity="info",
+                    metadata={"cluster": cluster_name, "provider": provider}
+                )
+                
+                return {
+                    "success": True,
+                    "message": "Monitoring został usunięty",
+                    "provider": provider,
+                    "prometheus": prometheus_result,
+                    "grafana": grafana_result
+                }
+            else:
+                errors = []
+                if not prometheus_result.get("success"):
+                    errors.append(f"Prometheus: {prometheus_result.get('error', 'Unknown error')}")
+                if not grafana_result.get("success"):
+                    errors.append(f"Grafana: {grafana_result.get('error', 'Unknown error')}")
+                
+                error_message = "; ".join(errors)
+                
+                # Log operation error
+                activity_log.log_operation(
+                    operation_type="monitoring_uninstall",
+                    cluster_name=cluster_name,
+                    details="Błąd podczas usuwania monitoringu",
+                    status="error",
+                    metadata={"error": error_message}
+                )
+                
+                # Send error notification
+                await notification_service.send_notification(
+                    user_id="default_user",
+                    title="Błąd odinstalowania monitoringu",
+                    message=f"Nie udało się odinstalować monitoringu z klastra '{cluster_name}': {error_message}",
+                    notification_type="monitoring_uninstall_error",
+                    severity="error",
+                    metadata={"cluster": cluster_name, "error": error_message}
+                )
+                
+                return {
+                    "success": False,
+                    "error": error_message
+                }
     except Exception as e:
         # Log exception
         activity_log.log_operation(
@@ -2482,6 +2609,154 @@ async def install_metrics_server(cluster_name: str):
             "success": False,
             "error": f"Błąd instalacji metrics-server: {str(e)}"
         }
+
+@app.get("/api/v1/monitoring/cloudwatch-metrics/{cluster_name}")
+async def get_cloudwatch_metrics(cluster_name: str):
+    """
+    Pobierz metryki CloudWatch dla klastra EKS
+    """
+    try:
+        from datetime import datetime, timedelta
+        import json
+        
+        # Pobierz credentials
+        credentials = eks_service.get_cluster_credentials(cluster_name)
+        if not credentials:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Nie znaleziono credentials dla klastra {cluster_name}"
+            )
+        
+        region = credentials["region"]
+        env = os.environ.copy()
+        env.update({
+            "AWS_ACCESS_KEY_ID": credentials["aws_access_key"],
+            "AWS_SECRET_ACCESS_KEY": credentials["aws_secret_key"],
+            "AWS_DEFAULT_REGION": region
+        })
+        
+        # Przygotuj zakres czasu (ostatnie 5 minut)
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(minutes=5)
+        
+        metrics_data = {}
+        
+        # Funkcja pomocnicza do pobierania metryk
+        def get_metric(namespace, metric_name, dimensions, stat="Average"):
+            try:
+                dim_args = []
+                for k, v in dimensions.items():
+                    dim_args.extend(["Name=" + k, "Value=" + v])
+                
+                result = subprocess.run([
+                    "aws", "cloudwatch", "get-metric-statistics",
+                    "--namespace", namespace,
+                    "--metric-name", metric_name,
+                    "--dimensions", *dim_args,
+                    "--start-time", start_time.isoformat(),
+                    "--end-time", end_time.isoformat(),
+                    "--period", "300",  # 5 minut
+                    "--statistics", stat,
+                    "--region", region,
+                    "--output", "json"
+                ], capture_output=True, text=True, env=env, timeout=10, encoding='utf-8', errors='replace')
+                
+                if result.returncode == 0:
+                    data = json.loads(result.stdout)
+                    datapoints = data.get("Datapoints", [])
+                    if datapoints:
+                        # Weź ostatni datapoint
+                        latest = max(datapoints, key=lambda x: x["Timestamp"])
+                        return latest.get(stat, 0)
+                return None
+            except Exception as e:
+                print(f"[get_cloudwatch_metrics] Error getting metric {metric_name}: {e}")
+                return None
+        
+        # Pobierz CPU utilization dla klastra
+        cpu_util = get_metric(
+            "ContainerInsights",
+            "cluster_cpu_utilization",
+            {"ClusterName": cluster_name},
+            "Average"
+        )
+        if cpu_util is not None:
+            metrics_data["cpu_utilization"] = round(cpu_util, 2)
+        
+        # Pobierz Memory utilization
+        mem_util = get_metric(
+            "ContainerInsights",
+            "cluster_memory_utilization",
+            {"ClusterName": cluster_name},
+            "Average"
+        )
+        if mem_util is not None:
+            metrics_data["memory_utilization"] = round(mem_util, 2)
+        
+        # Pobierz liczbę running pods
+        pod_count = get_metric(
+            "ContainerInsights",
+            "cluster_number_of_running_pods",
+            {"ClusterName": cluster_name},
+            "Average"
+        )
+        if pod_count is not None:
+            metrics_data["running_pods"] = int(pod_count)
+        
+        # Pobierz liczbę failed pods
+        failed_pods = get_metric(
+            "ContainerInsights",
+            "cluster_failed_pod_count",
+            {"ClusterName": cluster_name},
+            "Average"
+        )
+        if failed_pods is not None:
+            metrics_data["failed_pods"] = int(failed_pods)
+        
+        # Pobierz network RX bytes
+        net_rx = get_metric(
+            "ContainerInsights",
+            "cluster_network_rx_bytes",
+            {"ClusterName": cluster_name},
+            "Average"
+        )
+        if net_rx is not None:
+            metrics_data["network_rx_bytes"] = round(net_rx / 1024 / 1024, 2)  # MB
+        
+        # Pobierz network TX bytes
+        net_tx = get_metric(
+            "ContainerInsights",
+            "cluster_network_tx_bytes",
+            {"ClusterName": cluster_name},
+            "Average"
+        )
+        if net_tx is not None:
+            metrics_data["network_tx_bytes"] = round(net_tx / 1024 / 1024, 2)  # MB
+        
+        # Pobierz liczbę nodes
+        node_count = get_metric(
+            "ContainerInsights",
+            "cluster_node_count",
+            {"ClusterName": cluster_name},
+            "Average"
+        )
+        if node_count is not None:
+            metrics_data["node_count"] = int(node_count)
+        
+        return {
+            "cluster_name": cluster_name,
+            "region": region,
+            "metrics": metrics_data,
+            "timestamp": end_time.isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Błąd podczas pobierania metryk CloudWatch: {str(e)}"
+        )
 
 # BACKUP ENDPOINTS
 
