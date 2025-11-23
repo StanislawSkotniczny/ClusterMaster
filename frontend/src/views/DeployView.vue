@@ -305,6 +305,27 @@
                   </div>
                 </div>
               </div>
+
+              <!-- CloudWatch Monitoring -->
+              <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+                <h4 class="font-semibold text-gray-700 dark:text-gray-300 flex items-center mb-3">
+                  <span class="mr-2">📊</span> Monitoring
+                </h4>
+                <div class="flex items-start">
+                  <input
+                    id="eksInstallMonitoring"
+                    v-model="form.installMonitoring"
+                    type="checkbox"
+                    class="mt-1 mr-3 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <label for="eksInstallMonitoring" class="text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                    Install AWS CloudWatch Container Insights
+                    <span class="block text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Automatically installs CloudWatch Observability add-on for EKS cluster metrics and logs
+                    </span>
+                  </label>
+                </div>
+              </div>
             </div>
             
             <div v-else class="pt-4">

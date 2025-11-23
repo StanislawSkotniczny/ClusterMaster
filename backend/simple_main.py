@@ -3649,6 +3649,9 @@ async def create_eks_cluster(request: Request):
         # Kubernetes version
         k8s_version = data.get("k8s_version", "1.30")
         
+        # Monitoring installation
+        install_monitoring = data.get("install_monitoring", False)
+        
         print(f"📝 Cluster config:")
         print(f"   Name: {cluster_name}")
         print(f"   Region: {region}")
@@ -3657,6 +3660,7 @@ async def create_eks_cluster(request: Request):
         print(f"   Disk: {disk_size}GB")
         print(f"   K8s version: {k8s_version}")
         print(f"   VPC CIDR: {vpc_cidr}")
+        print(f"   Install monitoring: {install_monitoring}")
         
         if not all([cluster_name, aws_access_key, aws_secret_key]):
             print("❌ Missing required fields!")
@@ -3677,11 +3681,50 @@ async def create_eks_cluster(request: Request):
             k8s_version=k8s_version
         )
         print(f"✅ Terraform result: {result}")
-        print("=" * 80)
         
         if not result.get("success"):
             raise HTTPException(status_code=500, detail=result.get("error", "Failed to create EKS cluster"))
         
+        # Jeśli monitoring ma być zainstalowany, zainstaluj CloudWatch po utworzeniu klastra
+        if install_monitoring:
+            print(f"📊 Installing CloudWatch monitoring for {cluster_name}...")
+            try:
+                # Pobierz kontekst EKS dla klastra
+                context_name = f"arn:aws:eks:{region}:{result.get('account_id', '')}:cluster/{cluster_name}"
+                # Jeśli account_id nie jest w result, spróbuj pobrać z kubectl contexts
+                if not result.get('account_id'):
+                    try:
+                        contexts_result = subprocess.run(
+                            ["kubectl", "config", "get-contexts", "-o", "name"],
+                            capture_output=True,
+                            text=True,
+                            timeout=10
+                        )
+                        if contexts_result.returncode == 0:
+                            contexts = contexts_result.stdout.strip().split('\n')
+                            for ctx in contexts:
+                                if cluster_name in ctx and 'arn:aws:eks' in ctx:
+                                    context_name = ctx
+                                    break
+                    except Exception as ctx_err:
+                        print(f"⚠️ Warning: Failed to get context: {ctx_err}")
+                
+                print(f"   Using context: {context_name}")
+                monitoring_result = helm_service.install_cloudwatch_insights(cluster_name, context_name)
+                if monitoring_result.get("success"):
+                    print(f"✅ CloudWatch monitoring installed successfully")
+                    result["monitoring_installed"] = True
+                    result["monitoring_info"] = monitoring_result.get("access_info", {})
+                else:
+                    print(f"⚠️ Warning: Failed to install monitoring: {monitoring_result.get('error')}")
+                    result["monitoring_installed"] = False
+                    result["monitoring_error"] = monitoring_result.get("error")
+            except Exception as e:
+                print(f"⚠️ Warning: Exception during monitoring installation: {str(e)}")
+                result["monitoring_installed"] = False
+                result["monitoring_error"] = str(e)
+        
+        print("=" * 80)
         return result
         
     except HTTPException:
