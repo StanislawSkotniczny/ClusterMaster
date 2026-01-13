@@ -24,7 +24,7 @@ export interface ClusterInfo {
     kubernetes_version?: string  // Wersja Kubernetes
     created_at?: string  // Data utworzenia
     api_endpoint?: string  // Endpoint API
-    łassigned_ports?: {
+    assigned_ports?: {
         prometheus?: number
         grafana?: number
     }
