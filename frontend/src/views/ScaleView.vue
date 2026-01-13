@@ -26,10 +26,19 @@
           >
             🔵 kind
           </span>
+          <span 
+            v-else-if="clusterProvider === 'eks'" 
+            class="px-3 py-1 bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 rounded-full text-sm font-semibold"
+          >
+            ☁️ EKS
+          </span>
         </div>
         <p class="text-gray-600 dark:text-gray-400">
           <span v-if="clusterProvider === 'k3d'">
             Zarządzaj liczbą nodów i ich zasobami (Live Scaling - bez utraty danych!)
+          </span>
+          <span v-else-if="clusterProvider === 'eks'">
+            Skaluj liczbę worker nodes w AWS EKS (Live Scaling)
           </span>
           <span v-else>
             Zarządzaj liczbą nodów i ich zasobami
@@ -83,13 +92,13 @@
               v-model.number="newWorkerNodes"
               type="range"
               min="0"
-              max="10"
+              :max="clusterProvider === 'eks' ? 20 : 10"
               class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
             />
             <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
               <span>0</span>
-              <span>5</span>
-              <span>10</span>
+              <span>{{ clusterProvider === 'eks' ? '10' : '5' }}</span>
+              <span>{{ clusterProvider === 'eks' ? '20' : '10' }}</span>
             </div>
             <div class="mt-2 text-sm text-gray-600 dark:text-gray-400">
               <span v-if="workerNodeDiff > 0" class="text-green-600 dark:text-green-400">
@@ -102,6 +111,42 @@
                 Brak zmian
               </span>
             </div>
+          </div>
+          
+          <!-- EKS Instance Type Selection -->
+          <div v-if="clusterProvider === 'eks'" class="mb-8">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Typ Instancji EC2
+            </label>
+            <select 
+              v-model="selectedInstanceType"
+              class="w-full rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white px-4 py-2"
+            >
+              <optgroup label="T3 (Burstable)">
+                <option value="t3.micro">t3.micro (2 vCPU, 1 GB RAM) - $0.0104/hr</option>
+                <option value="t3.small">t3.small (2 vCPU, 2 GB RAM) - $0.0208/hr</option>
+                <option value="t3.medium">t3.medium (2 vCPU, 4 GB RAM) - $0.0416/hr</option>
+                <option value="t3.large">t3.large (2 vCPU, 8 GB RAM) - $0.0832/hr</option>
+                <option value="t3.xlarge">t3.xlarge (4 vCPU, 16 GB RAM) - $0.1664/hr</option>
+              </optgroup>
+              <optgroup label="T3a (Burstable AMD)">
+                <option value="t3a.small">t3a.small (2 vCPU, 2 GB RAM) - $0.0188/hr</option>
+                <option value="t3a.medium">t3a.medium (2 vCPU, 4 GB RAM) - $0.0376/hr</option>
+                <option value="t3a.large">t3a.large (2 vCPU, 8 GB RAM) - $0.0752/hr</option>
+              </optgroup>
+              <optgroup label="M5 (General Purpose)">
+                <option value="m5.large">m5.large (2 vCPU, 8 GB RAM) - $0.096/hr</option>
+                <option value="m5.xlarge">m5.xlarge (4 vCPU, 16 GB RAM) - $0.192/hr</option>
+                <option value="m5.2xlarge">m5.2xlarge (8 vCPU, 32 GB RAM) - $0.384/hr</option>
+              </optgroup>
+              <optgroup label="C5 (Compute Optimized)">
+                <option value="c5.large">c5.large (2 vCPU, 4 GB RAM) - $0.085/hr</option>
+                <option value="c5.xlarge">c5.xlarge (4 vCPU, 8 GB RAM) - $0.17/hr</option>
+              </optgroup>
+            </select>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
+              ⚠️ Zmiana typu instancji wymaga recreate nodów (rolling update). Może potrwać 5-10 minut.
+            </p>
           </div>
 
           <!-- Control Plane Nodes Info -->
@@ -206,11 +251,34 @@
             </div>
           </div>
           
+          <!-- Info about EKS live scaling -->
+          <div v-else-if="clusterProvider === 'eks'" class="bg-orange-50 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-700 rounded-lg p-4 mb-4">
+            <div class="flex items-start gap-2">
+              <span class="text-orange-600 dark:text-orange-400 text-2xl">☁️</span>
+              <div>
+                <h4 class="font-semibold text-orange-800 dark:text-orange-300">AWS EKS: Managed Scaling</h4>
+                <p class="text-sm text-orange-700 dark:text-orange-400 mt-1">
+                  Klaster EKS wspiera auto-scaling node groups. AWS będzie automatycznie zarządzać nodami.
+                  <strong>Twoje deploymenty będą zachowane!</strong>
+                </p>
+                <p class="text-sm text-orange-600 dark:text-orange-500 mt-2">
+                  ⏱️ Skalowanie może potrwać 2-5 minut (czas startu instancji EC2).
+                </p>
+              </div>
+            </div>
+          </div>
+          
           <div class="space-y-2 text-sm">
             <div v-if="workerNodeDiff !== 0" class="flex items-center gap-2">
               <span class="text-2xl">{{ workerNodeDiff > 0 ? '➕' : '➖' }}</span>
               <span class="font-medium">
                 Worker Nodes: {{ currentConfig.workerNodes }} → {{ newWorkerNodes }}
+              </span>
+            </div>
+            <div v-if="instanceTypeChanged" class="flex items-center gap-2">
+              <span class="text-2xl">💻</span>
+              <span class="font-medium">
+                Instance Type: {{ currentInstanceType }} → {{ selectedInstanceType }}
               </span>
             </div>
             <div v-if="cpuChanged" class="flex items-center gap-2">
@@ -268,9 +336,11 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiService } from '@/services/api'
+import { useAwsStore } from '@/stores/aws'
 
 const route = useRoute()
 const router = useRouter()
+const awsStore = useAwsStore()
 
 const clusterName = computed(() => route.params.name as string)
 
@@ -290,13 +360,15 @@ const currentConfig = ref({
 })
 
 // Provider info
-const clusterProvider = ref<string>('kind') // 'kind' or 'k3d'
+const clusterProvider = ref<string>('kind') // 'kind', 'k3d', or 'eks'
 const providerInfo = ref<string>('')
 
 // New Configuration
 const newWorkerNodes = ref(2)
 const newCpuPerNode = ref('2')
 const newRamPerNode = ref('4096')
+const selectedInstanceType = ref('t3.small') // For EKS
+const currentInstanceType = ref('t3.small') // Track current type
 
 // Computed
 const workerNodeDiff = computed(() => newWorkerNodes.value - currentConfig.value.workerNodes)
@@ -305,8 +377,12 @@ const cpuChanged = computed(() => parseInt(newCpuPerNode.value) !== currentConfi
 
 const ramChanged = computed(() => parseInt(newRamPerNode.value) !== currentConfig.value.ramPerNode)
 
+const instanceTypeChanged = computed(() => 
+  clusterProvider.value === 'eks' && selectedInstanceType.value !== currentInstanceType.value
+)
+
 const hasChanges = computed(() => 
-  workerNodeDiff.value !== 0 || cpuChanged.value || ramChanged.value
+  workerNodeDiff.value !== 0 || cpuChanged.value || ramChanged.value || instanceTypeChanged.value
 )
 
 // Methods
@@ -325,6 +401,7 @@ function resetChanges() {
   newWorkerNodes.value = currentConfig.value.workerNodes
   newCpuPerNode.value = currentConfig.value.cpuPerNode.toString()
   newRamPerNode.value = currentConfig.value.ramPerNode.toString()
+  selectedInstanceType.value = currentInstanceType.value
   successMessage.value = null
 }
 
@@ -332,6 +409,69 @@ async function loadClusterConfig() {
   try {
     loading.value = true
     error.value = null
+    
+    // Check if this is an EKS cluster from URL params
+    const isEks = route.query.provider === 'eks'
+    
+    if (isEks) {
+      // For EKS, fetch cluster details to get current instance type
+      clusterProvider.value = 'eks'
+      
+      try {
+        const awsStore = useAwsStore()
+        const response = await fetch(`http://localhost:8000/api/v1/eks-cluster/${clusterName.value}/details`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            region: awsStore.credentials?.region,
+            aws_access_key: awsStore.credentials?.accessKey,
+            aws_secret_key: awsStore.credentials?.secretKey
+          })
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          
+          // Set current instance type from node group
+          if (data.instance_types && data.instance_types.length > 0) {
+            currentInstanceType.value = data.instance_types[0]
+            selectedInstanceType.value = data.instance_types[0]
+          }
+          
+          currentConfig.value = {
+            controlPlaneNodes: 1,
+            workerNodes: data.node_count || 2,
+            totalNodes: (data.node_count || 2) + 1,
+            cpuPerNode: 0,
+            ramPerNode: 0
+          }
+        } else {
+          // Fallback to query params
+          currentConfig.value = {
+            controlPlaneNodes: 1,
+            workerNodes: route.query.nodeCount ? parseInt(route.query.nodeCount as string) : 2,
+            totalNodes: route.query.nodeCount ? parseInt(route.query.nodeCount as string) + 1 : 3,
+            cpuPerNode: 0,
+            ramPerNode: 0
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch EKS details:', err)
+        // Fallback to query params
+        currentConfig.value = {
+          controlPlaneNodes: 1,
+          workerNodes: route.query.nodeCount ? parseInt(route.query.nodeCount as string) : 2,
+          totalNodes: route.query.nodeCount ? parseInt(route.query.nodeCount as string) + 1 : 3,
+          cpuPerNode: 0,
+          ramPerNode: 0
+        }
+      }
+      
+      providerInfo.value = 'AWS EKS Cluster - managed by AWS'
+      resetChanges()
+      loading.value = false
+      return
+    }
     
     const response = await ApiService.getClusterScalingConfig(clusterName.value)
     
@@ -384,6 +524,14 @@ async function applyChanges() {
         'Twoje deploymenty będą zachowane!\n\n' +
         'Czy chcesz kontynuować?'
       )
+    } else if (clusterProvider.value === 'eks') {
+      confirmed = confirm(
+        '☁️ AWS EKS: Managed Scaling\n\n' +
+        'Node group będzie przeskalowany przez AWS.\n' +
+        'Operacja może potrwać 2-5 minut.\n' +
+        'Twoje deploymenty będą zachowane!\n\n' +
+        'Czy chcesz kontynuować?'
+      )
     } else {
       confirmed = confirm('Czy na pewno chcesz zastosować te zmiany?')
     }
@@ -393,11 +541,37 @@ async function applyChanges() {
       return
     }
     
-    const response = await ApiService.applyClusterScaling(clusterName.value, {
+    // Prepare config based on provider
+    const scalingConfig: any = {
       workerNodes: newWorkerNodes.value,
-      cpuPerNode: parseInt(newCpuPerNode.value),
-      ramPerNode: parseInt(newRamPerNode.value)
-    })
+      provider: clusterProvider.value
+    }
+    
+    // Add provider-specific options
+    if (clusterProvider.value === 'eks') {
+      // EKS requires AWS credentials
+      if (!awsStore.credentials) {
+        throw new Error('AWS credentials nie są dostępne. Zaloguj się ponownie do AWS.')
+      }
+      scalingConfig.region = awsStore.credentials.region
+      scalingConfig.awsAccessKey = awsStore.credentials.accessKey
+      scalingConfig.awsSecretKey = awsStore.credentials.secretKey
+      
+      // Add instance type if changed
+      if (instanceTypeChanged.value) {
+        scalingConfig.instanceTypes = [selectedInstanceType.value]
+      }
+      
+      // Optional: add min/max size for EKS
+      // scalingConfig.minSize = 1
+      // scalingConfig.maxSize = 10
+    } else {
+      // Local clusters (kind/k3d) need CPU/RAM
+      scalingConfig.cpuPerNode = parseInt(newCpuPerNode.value)
+      scalingConfig.ramPerNode = parseInt(newRamPerNode.value)
+    }
+    
+    const response = await ApiService.applyClusterScaling(clusterName.value, scalingConfig)
     
     if (!response.success) {
       throw new Error(response.error || 'Failed to apply scaling')

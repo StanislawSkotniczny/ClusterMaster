@@ -12,6 +12,80 @@ class AppService:
         self.temp_dir.mkdir(exist_ok=True)
         self._ensure_helm_repos()
     
+    def _get_eks_credentials(self, cluster_name: str) -> Optional[Dict[str, str]]:
+        """Get AWS credentials for EKS cluster if it exists"""
+        try:
+            from .eks_service import EksService
+            eks_service = EksService()
+            credentials = eks_service.get_cluster_credentials(cluster_name)
+            if credentials:
+                return {
+                    "AWS_ACCESS_KEY_ID": credentials["aws_access_key"],
+                    "AWS_SECRET_ACCESS_KEY": credentials["aws_secret_key"],
+                    "AWS_DEFAULT_REGION": credentials["region"]
+                }
+            return None
+        except Exception as e:
+            print(f"Could not get EKS credentials for {cluster_name}: {e}")
+            return None
+    
+    def _get_cluster_context(self, cluster_name: str) -> str:
+        """Get the correct kube-context for the cluster (kind-, k3d-, or EKS)"""
+        try:
+            # Check if it's an EKS cluster (check kubeconfig for EKS ARN)
+            result = subprocess.run(
+                ["kubectl", "config", "get-contexts", "-o", "name"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode == 0:
+                contexts = result.stdout.strip().split('\n')
+                # Look for EKS context (contains cluster name and looks like ARN)
+                for context in contexts:
+                    if cluster_name in context and ('arn:aws:eks' in context or 'eks' in context.lower()):
+                        return context
+            
+            # Check if it's a k3d cluster
+            result = subprocess.run(
+                ["k3d", "cluster", "list", "--output", "json"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                k3d_clusters = json.loads(result.stdout)
+                for cluster in k3d_clusters:
+                    if cluster.get("name") == cluster_name:
+                        return f"k3d-{cluster_name}"
+            
+            # Check if it's a kind cluster
+            result = subprocess.run(
+                ["kind", "get", "clusters"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode == 0:
+                clusters = result.stdout.strip().split('\n')
+                if cluster_name in clusters:
+                    return f"kind-{cluster_name}"
+            
+            # Default to k3d if cluster name suggests it
+            if "k3d" in cluster_name.lower():
+                return f"k3d-{cluster_name}"
+            
+            # Default to kind for backward compatibility
+            return f"kind-{cluster_name}"
+            
+        except Exception as e:
+            print(f"Warning: Could not determine cluster type: {e}")
+            # Default to kind for backward compatibility
+            return f"kind-{cluster_name}"
+    
     def _ensure_helm_repos(self):
         """Ensure common Helm repositories are added"""
         try:
@@ -83,6 +157,31 @@ class AppService:
                 "charts": []
             }
     
+    def _get_pods_status(self, cluster_name: str, namespace: str, label_selector: str = None) -> str:
+        """Get status of pods in namespace for diagnostics"""
+        try:
+            context = self._get_cluster_context(cluster_name)
+            
+            cmd = [
+                "kubectl", "get", "pods",
+                "-n", namespace,
+                "--context", context,
+                "-o", "wide"
+            ]
+            
+            if label_selector:
+                cmd.extend(["-l", label_selector])
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                return result.stdout
+            else:
+                return f"Nie udało się pobrać statusu podów: {result.stderr}"
+                
+        except Exception as e:
+            return f"Błąd podczas sprawdzania podów: {str(e)}"
+    
     def install_app(self, cluster_name: str, app_data: Dict[str, Any]) -> Dict[str, Any]:
         """Install application on cluster using Helm"""
         try:
@@ -126,10 +225,19 @@ class AppService:
                         "message": f"{display_name} został zainstalowany na klastrze {cluster_name}",
                         "app_name": app_name,
                         "namespace": namespace,
-                        "release_name": f"{app_name}-{cluster_name}"
+                        "release_name": f"{app_name}-{cluster_name}",
+                        "stdout": result.get("stdout", ""),
+                        "stderr": result.get("stderr", ""),
+                        "output": result.get("output", ""),
+                        "command": result.get("command", "")
                     }
                 else:
-                    return result
+                    # Return full result including error details
+                    return {
+                        **result,
+                        "app_name": app_name,
+                        "namespace": namespace
+                    }
                     
             finally:
 
@@ -151,14 +259,23 @@ class AppService:
                     "error": f"Cluster {cluster_name} does not exist"
                 }
             
+            context = self._get_cluster_context(cluster_name)
+            
+            # Prepare environment with AWS credentials if EKS cluster
+            env = os.environ.copy()
+            if 'arn:aws:eks' in context:
+                eks_creds = self._get_eks_credentials(cluster_name)
+                if eks_creds:
+                    env.update(eks_creds)
+                    print(f"🔐 Injected AWS credentials for EKS cluster {cluster_name}")
 
             cmd = [
                 "helm", "list", "--all-namespaces",
-                "--kube-context", f"kind-{cluster_name}",
+                "--kube-context", context,
                 "--output", "json"
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=env)
             
             if result.returncode == 0:
                 releases = json.loads(result.stdout) if result.stdout.strip() else []
@@ -193,21 +310,34 @@ class AppService:
                     "error": f"Cluster {cluster_name} does not exist"
                 }
             
-            if f"-{cluster_name}" in app_name:
+            # Special handling for monitoring apps - they don't have cluster suffix
+            if app_name.lower() in ['prometheus', 'grafana']:
+                release_name = app_name
+            elif f"-{cluster_name}" in app_name:
                 release_name = app_name  
             else:
                 release_name = f"{app_name}-{cluster_name}"  
             
             print(f"Looking for release: {release_name}")
             
+            context = self._get_cluster_context(cluster_name)
+            
+            # Prepare environment with AWS credentials if EKS cluster
+            env = os.environ.copy()
+            if 'arn:aws:eks' in context:
+                eks_creds = self._get_eks_credentials(cluster_name)
+                if eks_creds:
+                    env.update(eks_creds)
+                    print(f"🔐 Injected AWS credentials for EKS cluster {cluster_name}")
+            
             list_cmd = [
                 "helm", "list", "--all-namespaces",
-                "--kube-context", f"kind-{cluster_name}",
+                "--kube-context", context,
                 "--output", "json"
             ]
             print(f"List command: {' '.join(list_cmd)}")
             
-            list_result = subprocess.run(list_cmd, capture_output=True, text=True, timeout=30)
+            list_result = subprocess.run(list_cmd, capture_output=True, text=True, timeout=30, env=env)
             print(f"List result code: {list_result.returncode}")
             print(f"List stdout: {list_result.stdout}")
             print(f"List stderr: {list_result.stderr}")
@@ -236,12 +366,12 @@ class AppService:
                 cmd = [
                     "helm", "uninstall", release_name,
                     "--namespace", namespace,
-                    "--kube-context", f"kind-{cluster_name}",
+                    "--kube-context", context,
                     "--wait"
                 ]
                 print(f"Uninstall command: {' '.join(cmd)}")
                 
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
                 print(f"Uninstall result code: {result.returncode}")
                 print(f"Uninstall stdout: {result.stdout}")
                 print(f"Uninstall stderr: {result.stderr}")
@@ -270,36 +400,71 @@ class AppService:
             }
     
     def _cluster_exists(self, cluster_name: str) -> bool:
-        """Check if cluster exists"""
+        """Check if cluster exists (supports kind, k3d, and EKS)"""
         try:
-            result = subprocess.run([
-                "kind", "get", "clusters"
-            ], capture_output=True, text=True, timeout=10)
+            # Check if it's an EKS cluster by looking for credentials file
+            eks_creds = self._get_eks_credentials(cluster_name)
+            if eks_creds:
+                return True
+            
+            # Check k3d clusters
+            result = subprocess.run(
+                ["k3d", "cluster", "list", "--output", "json"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                k3d_clusters = json.loads(result.stdout)
+                for cluster in k3d_clusters:
+                    if cluster.get("name") == cluster_name:
+                        return True
+            
+            # Check kind clusters
+            result = subprocess.run(
+                ["kind", "get", "clusters"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
             
             if result.returncode == 0:
                 clusters = result.stdout.strip().split('\n')
-                return cluster_name in clusters
+                if cluster_name in clusters:
+                    return True
+            
             return False
-        except:
+        except Exception as e:
+            print(f"Warning: Could not check cluster existence: {e}")
             return False
     
     def _create_namespace(self, cluster_name: str, namespace: str):
         """Create namespace if it doesn't exist"""
         try:
+            context = self._get_cluster_context(cluster_name)
+            
+            # Prepare environment with AWS credentials if EKS cluster
+            env = os.environ.copy()
+            if 'arn:aws:eks' in context:
+                eks_creds = self._get_eks_credentials(cluster_name)
+                if eks_creds:
+                    env.update(eks_creds)
+            
             cmd = [
                 "kubectl", "create", "namespace", namespace,
-                "--context", f"kind-{cluster_name}",
+                "--context", context,
                 "--dry-run=client", "-o", "yaml"
             ]
             
-            dry_run = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            dry_run = subprocess.run(cmd, capture_output=True, text=True, timeout=10, env=env)
             
             if dry_run.returncode == 0:
                 apply_cmd = [
-                    "kubectl", "apply", "--context", f"kind-{cluster_name}",
+                    "kubectl", "apply", "--context", context,
                     "-f", "-"
                 ]
-                subprocess.run(apply_cmd, input=dry_run.stdout, capture_output=True, text=True, timeout=10)
+                subprocess.run(apply_cmd, input=dry_run.stdout, capture_output=True, text=True, timeout=10, env=env)
                 
         except Exception as e:
             print(f"Warning: Could not create namespace {namespace}: {e}")
@@ -351,42 +516,177 @@ class AppService:
     
     def _helm_install(self, cluster_name: str, release_name: str, chart: str, 
                      namespace: str, values_file: Optional[Path] = None) -> Dict[str, Any]:
-        """Install Helm chart"""
+        """Install Helm chart with real-time output capture"""
+        import time
+        import threading
+        
         try:
+            context = self._get_cluster_context(cluster_name)
+            
+            # Prepare environment with AWS credentials if EKS cluster
+            env = os.environ.copy()
+            if 'arn:aws:eks' in context:
+                eks_creds = self._get_eks_credentials(cluster_name)
+                if eks_creds:
+                    env.update(eks_creds)
+                    print(f"🔐 Injected AWS credentials for EKS cluster {cluster_name}")
+            
             cmd = [
                 "helm", "install", release_name, chart,
                 "--namespace", namespace,
                 "--create-namespace",
-                "--kube-context", f"kind-{cluster_name}",
+                "--kube-context", context,
                 "--wait",
-                "--timeout", "10m"
+                "--timeout", "10m",
+                "--debug"  # Add debug flag for more verbose output
             ]
             
             if values_file and values_file.exists():
                 cmd.extend(["-f", str(values_file)])
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            # Format command for logging
+            cmd_str = " ".join(cmd)
             
-            if result.returncode == 0:
+            print(f"🚀 Executing: {cmd_str}")
+            
+            # Use Popen for real-time output capture
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+                env=env  # Pass environment with AWS credentials
+            )
+            
+            # Collect output in real-time
+            stdout_lines = []
+            stderr_lines = []
+            
+            def read_stdout():
+                for line in iter(process.stdout.readline, ''):
+                    if line:
+                        stdout_lines.append(line)
+                        print(f"  [HELM OUT] {line.rstrip()}")
+            
+            def read_stderr():
+                for line in iter(process.stderr.readline, ''):
+                    if line:
+                        stderr_lines.append(line)
+                        print(f"  [HELM ERR] {line.rstrip()}")
+            
+            # Start threads to read stdout and stderr
+            stdout_thread = threading.Thread(target=read_stdout)
+            stderr_thread = threading.Thread(target=read_stderr)
+            stdout_thread.daemon = True
+            stderr_thread.daemon = True
+            stdout_thread.start()
+            stderr_thread.start()
+            
+            # Wait for process with timeout
+            try:
+                returncode = process.wait(timeout=600)  # 10 minutes
+            except subprocess.TimeoutExpired:
+                print("⏱️ Helm install timeout - killing process...")
+                process.kill()
+                
+                # Give threads time to finish reading
+                time.sleep(2)
+                
+                stdout_output = "".join(stdout_lines)
+                stderr_output = "".join(stderr_lines)
+                
+                combined_output = ""
+                if stdout_output:
+                    combined_output += "=== STDOUT (do momentu timeout) ===\n" + stdout_output + "\n"
+                if stderr_output:
+                    combined_output += "\n=== STDERR (do momentu timeout) ===\n" + stderr_output + "\n"
+                
+                # Add pod diagnostics
+                try:
+                    combined_output += "\n=== STATUS PODÓW W NAMESPACE ===\n"
+                    pods_status = self._get_pods_status(cluster_name, namespace)
+                    combined_output += pods_status + "\n"
+                except:
+                    pass
+                
+                combined_output += "\n=== POLECENIA DIAGNOSTYCZNE ===\n"
+                combined_output += f"kubectl get pods -n {namespace} --context {context}\n"
+                combined_output += f"kubectl describe pod -n {namespace} <pod-name>\n"
+                combined_output += f"kubectl logs -n {namespace} -l app.kubernetes.io/instance={release_name}\n"
+                
+                return {
+                    "success": False,
+                    "error": "Installation timed out (10 minutes)",
+                    "stdout": stdout_output,
+                    "stderr": stderr_output,
+                    "output": combined_output,
+                    "command": cmd_str
+                }
+            
+            # Wait for threads to finish
+            stdout_thread.join(timeout=2)
+            stderr_thread.join(timeout=2)
+            
+            stdout_output = "".join(stdout_lines)
+            stderr_output = "".join(stderr_lines)
+            
+            # Combine stdout and stderr for complete log
+            combined_output = ""
+            if stdout_output:
+                combined_output += "=== STDOUT ===\n" + stdout_output + "\n"
+            if stderr_output:
+                combined_output += "\n=== STDERR ===\n" + stderr_output
+            
+            if returncode == 0:
                 return {
                     "success": True,
                     "message": f"Successfully installed {release_name}",
-                    "output": result.stdout
+                    "stdout": stdout_output,
+                    "stderr": stderr_output,
+                    "output": combined_output,
+                    "command": cmd_str
                 }
             else:
+                # Installation failed - add pod diagnostics
+                diagnostic_output = combined_output + "\n\n=== DIAGNOSTYKA ===\n"
+                try:
+                    diagnostic_output += "\n=== STATUS PODÓW W NAMESPACE ===\n"
+                    pods_status = self._get_pods_status(cluster_name, namespace)
+                    diagnostic_output += pods_status + "\n"
+                    
+                    # Get pod logs if available
+                    diagnostic_output += "\n=== LOGI PODÓW ===\n"
+                    logs_cmd = [
+                        "kubectl", "logs", "-n", namespace,
+                        "-l", f"app.kubernetes.io/instance={release_name}",
+                        "--context", context,
+                        "--tail", "50"
+                    ]
+                    logs_result = subprocess.run(logs_cmd, capture_output=True, text=True, timeout=30)
+                    if logs_result.stdout:
+                        diagnostic_output += logs_result.stdout
+                    else:
+                        diagnostic_output += "Brak logów (pody mogą nie być jeszcze uruchomione)\n"
+                except:
+                    pass
+                
                 return {
                     "success": False,
-                    "error": f"Helm install failed: {result.stderr}",
-                    "output": result.stdout
+                    "error": f"Helm install failed (exit code {returncode})",
+                    "stdout": stdout_output,
+                    "stderr": stderr_output,
+                    "output": diagnostic_output,
+                    "command": cmd_str
                 }
                 
-        except subprocess.TimeoutExpired:
-            return {
-                "success": False,
-                "error": "Installation timed out (10 minutes)"
-            }
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
             return {
                 "success": False,
-                "error": f"Installation error: {str(e)}"
+                "error": f"Installation error: {str(e)}",
+                "output": f"Exception occurred:\n{error_details}",
+                "command": cmd_str if 'cmd_str' in locals() else "N/A"
             }

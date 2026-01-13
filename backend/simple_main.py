@@ -1,5 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from sse_starlette.sse import EventSourceResponse
 import subprocess
 import os
 import shutil
@@ -11,12 +12,16 @@ from app.services.port_manager import port_manager
 from app.services.backup_service import BackupService
 from app.services.app_service import AppService
 from app.services.k3d_service import k3d_service
+from app.services.activity_log import activity_log
+from app.services.notification_service import notification_service
+from app.services.eks_service import eks_service
 import argparse
 import sys
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Optional
+from pathlib import Path
 
 # Parse command line arguments
 def parse_args():
@@ -38,11 +43,10 @@ else:
 app_service = AppService()
 
 _cluster_cache = {}
-_cache_ttl_fast = timedelta(seconds=3)  # Szybkie cache dla list (3s)
-_cache_ttl_full = timedelta(seconds=2)  # Pełne cache dla szczegółów (2s)  
+_cache_ttl_fast = timedelta(seconds=3)  
+_cache_ttl_full = timedelta(seconds=2)  
 
 def get_from_cache(key: str, use_fast_ttl: bool = False) -> Optional[dict]:
-    """Pobierz wartość z cache jeśli jest aktualna"""
     if key in _cluster_cache:
         data, timestamp = _cluster_cache[key]
         ttl = _cache_ttl_fast if use_fast_ttl else _cache_ttl_full
@@ -51,15 +55,19 @@ def get_from_cache(key: str, use_fast_ttl: bool = False) -> Optional[dict]:
     return None
 
 def set_in_cache(key: str, data: dict):
-    """Zapisz wartość w cache"""
     _cluster_cache[key] = (data, datetime.now())
 
 app = FastAPI(title="ClusterMaster API", version="1.0.0")
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:5173", 
+        "http://localhost:5174", 
+        "http://localhost:3000",  
+        "http://localhost",       
+        "http://localhost:80"     
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -220,28 +228,63 @@ def parse_node_metrics(metrics_output: str) -> dict:
 def get_basic_node_info(cluster_name: str) -> dict:
     """Pobierz podstawowe informacje o węzłach gdy metryki nie są dostępne"""
     try:
+        # Wykryj provider klastra
+        provider = detect_cluster_provider(cluster_name)
+        context = get_cluster_context(cluster_name, provider)
+        
+        # Przygotuj environment variables (dla EKS)
+        env = os.environ.copy()
+        if provider == "eks":
+            credentials = eks_service.get_cluster_credentials(cluster_name)
+            if credentials:
+                env.update({
+                    "AWS_ACCESS_KEY_ID": credentials["aws_access_key"],
+                    "AWS_SECRET_ACCESS_KEY": credentials["aws_secret_key"],
+                    "AWS_DEFAULT_REGION": credentials["region"]
+                })
+        
         nodes_result = subprocess.run([
-            "kubectl", "get", "nodes", "--context", f"kind-{cluster_name}",
-            "-o", r"custom-columns=NAME:.metadata.name,STATUS:.status.conditions[-1].type,ROLES:.metadata.labels.node-role\.kubernetes\.io/control-plane",
-            "--no-headers"
-        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
+            "kubectl", "get", "nodes", "--context", context,
+            "-o", "json"
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5, env=env)
         
         if nodes_result.returncode == 0:
-            lines = nodes_result.stdout.strip().split('\n')
+            import json
+            nodes_data = json.loads(nodes_result.stdout)
             nodes_info = []
-            for line in lines:
-                if line.strip():
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        nodes_info.append({
-                            "name": parts[0],
-                            "status": parts[1],
-                            "role": "control-plane" if len(parts) > 2 and parts[2] else "worker"
-                        })
+            
+            for item in nodes_data['items']:
+                node_name = item['metadata']['name']
+                
+                # Sprawdź status
+                status = "Unknown"
+                for condition in item['status'].get('conditions', []):
+                    if condition['type'] == 'Ready':
+                        status = "Ready" if condition['status'] == 'True' else "NotReady"
+                        break
+                
+                # Sprawdź rolę
+                labels = item['metadata'].get('labels', {})
+                role = "worker"
+                if 'node-role.kubernetes.io/control-plane' in labels:
+                    role = "control-plane"
+                elif 'node-role.kubernetes.io/master' in labels:
+                    role = "control-plane"
+                
+                nodes_info.append({
+                    "name": node_name,
+                    "status": status,
+                    "role": role,
+                    "cpu_usage": 0,
+                    "memory_usage": 0,
+                    "memory_percentage": 0
+                })
             
             return {
                 "node_count": len(nodes_info),
                 "nodes": nodes_info,
+                "cpu_usage": 0,  # Unknown
+                "memory_usage": 0,  # Unknown
                 "summary": f"{len(nodes_info)} wezlow",
                 "note": "Podstawowe informacje (uzyj 'kubectl describe nodes' dla wiecej)"
             }
@@ -250,20 +293,35 @@ def get_basic_node_info(cluster_name: str) -> dict:
     
     return {
         "error": "Nie mozna pobrac informacji o wezlach",
-        "node_count": 0
+        "node_count": 0,
+        "cpu_usage": 0,
+        "memory_usage": 0
     }
 
 def detect_cluster_provider(cluster_name: str) -> str:
-    """Wykryj providera klastra (kind lub k3d)"""
-    # Sprawdź k3d clusters (z obsługą błędów)
+    try:
+        result = subprocess.run(
+            ["kubectl", "config", "get-contexts", "-o", "name"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0:
+            contexts = result.stdout.strip().split('\n')
+            for context in contexts:
+                if cluster_name in context and ('arn:aws:eks' in context or 'eks' in context.lower()):
+                    return "eks"
+    except Exception as e:
+        print(f"Nie można sprawdzić kontekstów kubectl: {e}")
+
     try:
         k3d_clusters = k3d_service.list_clusters()
         if cluster_name in k3d_clusters:
             return "k3d"
     except Exception as e:
         print(f"Nie można sprawdzić klastrów k3d: {e}")
-    
-    # Sprawdź kind clusters
+
     try:
         kind_result = run_kind_command(["get", "clusters"])
         if kind_result["returncode"] == 0 and cluster_name in kind_result["stdout"]:
@@ -271,55 +329,171 @@ def detect_cluster_provider(cluster_name: str) -> str:
     except Exception as e:
         print(f"Nie można sprawdzić klastrów Kind: {e}")
     
-    # Default to kind if unknown
     return "kind"
 
+def get_cluster_context(cluster_name: str, provider: str = None) -> str:
+    if provider is None:
+        provider = detect_cluster_provider(cluster_name)
+    
+    if provider == "eks":
+        try:
+            result = subprocess.run(
+                ["kubectl", "config", "get-contexts", "-o", "name"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode == 0:
+                contexts = result.stdout.strip().split('\n')
+                for context in contexts:
+                    if cluster_name in context and 'arn:aws:eks' in context:
+                        return context
+        except Exception as e:
+            print(f"Nie można znaleźć kontekstu EKS: {e}")
+    
+    return f"{provider}-{cluster_name}"
+
 def get_enhanced_node_info(cluster_name: str) -> dict:
-    """Pobierz rozszerzone informacje o węzłach używając Docker stats"""
     try:
-        # Najpierw pobierz nazwy węzłów
+        provider = detect_cluster_provider(cluster_name)
+        context = get_cluster_context(cluster_name, provider)
+        print(f"[get_enhanced_node_info] START for cluster={cluster_name}, provider={provider}, context={context}")
+
+        env = os.environ.copy()
+        if provider == "eks":
+            credentials = eks_service.get_cluster_credentials(cluster_name)
+            if credentials:
+                env.update({
+                    "AWS_ACCESS_KEY_ID": credentials["aws_access_key"],
+                    "AWS_SECRET_ACCESS_KEY": credentials["aws_secret_key"],
+                    "AWS_DEFAULT_REGION": credentials["region"]
+                })
+        
         nodes_result = subprocess.run([
-            "kubectl", "get", "nodes", "--context", f"kind-{cluster_name}",
+            "kubectl", "get", "nodes", "--context", context,
             "-o", "json"
-        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5, env=env)
         
         if nodes_result.returncode != 0:
             return get_basic_node_info(cluster_name)
         
-        # Parse JSON response
         import json
         nodes_data = json.loads(nodes_result.stdout)
-        node_names = [item['metadata']['name'] for item in nodes_data['items']]
         
-      
-        if node_names:
-            docker_stats = subprocess.run([
-                "docker", "stats", "--no-stream", "--format", 
-                "{{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"
-            ] + node_names, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
+        nodes_info_list = []
+        for item in nodes_data['items']:
+            node_name = item['metadata']['name']
             
-            # Parse stats
-            stats_map = {}
-            if docker_stats.returncode == 0:
-                lines = docker_stats.stdout.strip().split('\n')
-                for line in lines:
-                    parts = line.split('\t')
-                    if len(parts) >= 4:
-                        container_name = parts[0]
-                        stats_map[container_name] = {
-                            'cpu': parts[1],
-                            'memory': parts[2],
-                            'memory_percent': parts[3]
+            status = "Unknown"
+            for condition in item['status'].get('conditions', []):
+                if condition['type'] == 'Ready':
+                    status = "Ready" if condition['status'] == 'True' else "NotReady"
+                    break
+        
+            labels = item['metadata'].get('labels', {})
+            role = "worker"
+            if 'node-role.kubernetes.io/control-plane' in labels:
+                role = "control-plane"
+            elif 'node-role.kubernetes.io/master' in labels:
+                role = "control-plane"
+            
+            nodes_info_list.append({
+                'name': node_name,
+                'role': role,
+                'status': status
+            })
+        
+        node_names = [node['name'] for node in nodes_info_list]
+        
+        # Dla EKS użyj kubectl top nodes, dla lokalnych Docker stats
+        stats_map = {}
+        
+        if provider == "eks":
+            # Spróbuj użyć kubectl top nodes (wymaga metrics-server)
+            print(f"[get_enhanced_node_info] Running kubectl top nodes with context={context}")
+            print(f"[get_enhanced_node_info] AWS env vars present: AWS_ACCESS_KEY_ID={'AWS_ACCESS_KEY_ID' in env}, AWS_SECRET_ACCESS_KEY={'AWS_SECRET_ACCESS_KEY' in env}")
+            
+            top_result = subprocess.run([
+                "kubectl", "top", "nodes", "--context", context
+            ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10, env=env)
+            
+            print(f"[get_enhanced_node_info] kubectl top nodes returncode={top_result.returncode}")
+            print(f"[get_enhanced_node_info] stdout={top_result.stdout[:200]}")
+            print(f"[get_enhanced_node_info] stderr={top_result.stderr[:200]}")
+            
+            if top_result.returncode == 0:
+                # Parse output: NAME   CPU(cores)   CPU%   MEMORY(bytes)   MEMORY%
+                lines = top_result.stdout.strip().split('\n')
+                for line in lines[1:]:  # Skip header
+                    parts = line.split()
+                    if len(parts) >= 5:
+                        node_name = parts[0]
+                        cpu_percent = parts[2]
+                        memory_usage = parts[3]
+                        memory_percent = parts[4]
+                        stats_map[node_name] = {
+                            'cpu': cpu_percent,
+                            'memory': memory_usage,
+                            'memory_percent': memory_percent
                         }
+                print(f"[get_enhanced_node_info] Parsed stats for {len(stats_map)} nodes")
+            else:
+                print(f"[get_enhanced_node_info] kubectl top nodes failed for EKS: {top_result.stderr}")
+        else:
+            # Dla lokalnych klastrów użyj Docker stats
+            if node_names:
+                docker_stats = subprocess.run([
+                    "docker", "stats", "--no-stream", "--format", 
+                    "{{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"
+                ] + node_names, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
+                
+                # Parse stats
+                if docker_stats.returncode == 0:
+                    lines = docker_stats.stdout.strip().split('\n')
+                    for line in lines:
+                        parts = line.split('\t')
+                        if len(parts) >= 4:
+                            container_name = parts[0]
+                            stats_map[container_name] = {
+                                'cpu': parts[1],
+                                'memory': parts[2],
+                                'memory_percent': parts[3]
+                            }
         
         nodes_info = []
-        for node_name in node_names:
-            role = "control-plane" if "control-plane" in node_name else "worker"
+        total_cpu = 0.0
+        total_mem = 0.0
+        node_count = 0
+        
+        for node_data in nodes_info_list:
+            node_name = node_data['name']
+            role = node_data['role']
+            status = node_data['status']
             
             stats = stats_map.get(node_name, {})
+            
+            # Parse CPU percentage (remove % sign)
+            cpu_str = stats.get('cpu', '0%')
+            try:
+                cpu_val = float(cpu_str.replace('%', '').strip())
+                total_cpu += cpu_val
+                node_count += 1
+            except:
+                cpu_val = 0
+            
+            # Parse memory percentage
+            mem_percent_str = stats.get('memory_percent', '0%')
+            try:
+                mem_val = float(mem_percent_str.replace('%', '').strip())
+                total_mem += mem_val
+            except:
+                mem_val = 0
+            
             node_info = {
                 "name": node_name,
                 "role": role,
+                "status": status,
                 "cpu_usage": stats.get('cpu', 'N/A'),
                 "memory_usage": stats.get('memory', 'N/A'),
                 "memory_percent": stats.get('memory_percent', 'N/A'),
@@ -327,13 +501,23 @@ def get_enhanced_node_info(cluster_name: str) -> dict:
             }
             nodes_info.append(node_info)
         
-        return {
+        # Calculate averages
+        avg_cpu = round(total_cpu / node_count, 1) if node_count > 0 else 0
+        avg_mem = round(total_mem / node_count, 1) if node_count > 0 else 0
+        
+        result = {
             "node_count": len(nodes_info),
             "nodes": nodes_info,
+            "cpu_usage": avg_cpu,  # Average CPU across all nodes
+            "memory_usage": avg_mem,  # Average memory across all nodes
             "summary": f"{len(nodes_info)} wezlow",
-            "type": "docker_stats",
-            "note": "Metryki z Docker (zywe dane CPU/RAM)"
+            "type": "kubectl_top" if provider == "eks" else "docker_stats",
+            "note": "Metryki z kubectl top nodes (EKS)" if provider == "eks" else "Metryki z Docker (zywe dane CPU/RAM)"
         }
+        
+        print(f"[get_enhanced_node_info] Returning result for {cluster_name}: cpu_usage={avg_cpu}%, memory_usage={avg_mem}%, nodes={len(nodes_info)}")
+        
+        return result
         
     except Exception as e:
         return get_basic_node_info(cluster_name)
@@ -361,7 +545,7 @@ async def get_cluster_details_async(cluster_name: str, include_resources: bool =
                     executor,
                     lambda: subprocess.run([
                         "kubectl", "get", "nodes", "--context", f"{provider}-{cluster_name}"
-                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=1)
+                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
                 )
                 
                 if result.returncode == 0:
@@ -378,26 +562,71 @@ async def get_cluster_details_async(cluster_name: str, include_resources: bool =
         # Sprawdź monitoring
         async def check_monitoring():
             try:
-                # Sprawdź oba pody w jednym wywołaniu
-                result = await loop.run_in_executor(
-                    executor,
-                    lambda: subprocess.run([
-                        "kubectl", "get", "pods", "--namespace", "monitoring",
-                        "--context", f"{provider}-{cluster_name}",
-                        "-l", "app.kubernetes.io/name in (prometheus,grafana)",
-                        "--no-headers"
-                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=1)
-                )
-                
-                # Sprawdź czy są oba pody (Prometheus i Grafana)
-                if result.returncode == 0:
-                    pods = result.stdout.strip().split('\n')
-                    has_prometheus = any('prometheus' in pod.lower() for pod in pods if pod.strip())
-                    has_grafana = any('grafana' in pod.lower() for pod in pods if pod.strip())
-                    cluster_info["monitoring"] = {"installed": bool(has_prometheus and has_grafana)}
+                # Dla EKS sprawdź CloudWatch add-on
+                if provider == "eks":
+                    # Pobierz credentials dla EKS
+                    credentials = eks_service.get_cluster_credentials(cluster_name)
+                    if credentials:
+                        region = credentials["region"]
+                        env = os.environ.copy()
+                        env.update({
+                            "AWS_ACCESS_KEY_ID": credentials["aws_access_key"],
+                            "AWS_SECRET_ACCESS_KEY": credentials["aws_secret_key"],
+                            "AWS_DEFAULT_REGION": region
+                        })
+                        
+                        # Sprawdź CloudWatch Observability add-on
+                        check_result = await loop.run_in_executor(
+                            executor,
+                            lambda: subprocess.run([
+                                "aws", "eks", "describe-addon",
+                                "--cluster-name", cluster_name,
+                                "--addon-name", "amazon-cloudwatch-observability",
+                                "--region", region,
+                                "--output", "json"
+                            ], capture_output=True, text=True, env=env, timeout=10)
+                        )
+                        
+                        if check_result.returncode == 0:
+                            import json
+                            addon_data = json.loads(check_result.stdout)
+                            addon_status = addon_data.get("addon", {}).get("status", "UNKNOWN")
+                            
+                            container_insights_url = f"https://console.aws.amazon.com/cloudwatch/home?region={region}#container-insights:infrastructure"
+                            logs_url = f"https://console.aws.amazon.com/cloudwatch/home?region={region}#logsV2:log-groups"
+                            
+                            cluster_info["monitoring"] = {
+                                "installed": addon_status == "ACTIVE",
+                                "cloudwatch_url": container_insights_url,
+                                "logs_url": logs_url,
+                                "addon_status": addon_status
+                            }
+                        else:
+                            cluster_info["monitoring"] = {"installed": False}
+                    else:
+                        cluster_info["monitoring"] = {"installed": False}
                 else:
-                    cluster_info["monitoring"] = {"installed": False}
+                    # Dla Kind/k3d sprawdź Helm releases
+                    result = await loop.run_in_executor(
+                        executor,
+                        lambda: subprocess.run([
+                            "helm", "list", "--namespace", "monitoring",
+                            "--kube-context", f"{provider}-{cluster_name}",
+                            "--output", "json"
+                        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
+                    )
+                    
+                    # Sprawdź czy są oba releases (prometheus i grafana)
+                    if result.returncode == 0 and result.stdout.strip():
+                        import json
+                        releases = json.loads(result.stdout)
+                        has_prometheus = any('prometheus' in release.get('name', '').lower() for release in releases)
+                        has_grafana = any('grafana' in release.get('name', '').lower() for release in releases)
+                        cluster_info["monitoring"] = {"installed": bool(has_prometheus and has_grafana)}
+                    else:
+                        cluster_info["monitoring"] = {"installed": False}
             except Exception as e:
+                print(f"[check_monitoring] Error for {cluster_name}: {e}")
                 cluster_info["monitoring"] = {"installed": False}
         
         # Pobierz porty
@@ -405,6 +634,99 @@ async def get_cluster_details_async(cluster_name: str, include_resources: bool =
             cluster_ports = port_manager.get_cluster_ports(cluster_name)
             if cluster_ports:
                 cluster_info["assigned_ports"] = cluster_ports
+        
+        # Pobierz wersję Kubernetes
+        async def get_k8s_version():
+            try:
+                # Najpierw spróbuj pobrać wersję z węzłów (najprostsze i najniezawodniejsze)
+                nodes_result = await loop.run_in_executor(
+                    executor,
+                    lambda: subprocess.run([
+                        "kubectl", "get", "nodes", "-o", "json", "--context", f"{provider}-{cluster_name}"
+                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
+                )
+                
+                if nodes_result.returncode == 0:
+                    import json
+                    try:
+                        nodes_data = json.loads(nodes_result.stdout)
+                        if nodes_data.get('items') and len(nodes_data['items']) > 0:
+                            # Weź wersję z pierwszego węzła
+                            kubelet_version = nodes_data['items'][0]['status']['nodeInfo']['kubeletVersion']
+                            cluster_info["kubernetes_version"] = kubelet_version
+                            print(f"[get_k8s_version] Success: {kubelet_version}")
+                            return
+                    except Exception as parse_error:
+                        print(f"[get_k8s_version] Failed to parse nodes JSON: {parse_error}")
+                
+                # Fallback: kubectl version
+                print(f"[get_k8s_version] Trying kubectl version fallback...")
+                result = await loop.run_in_executor(
+                    executor,
+                    lambda: subprocess.run([
+                        "kubectl", "version", "--context", f"{provider}-{cluster_name}"
+                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5)
+                )
+                
+                if result.returncode == 0:
+                    # Parse text output dla wersji serwera
+                    import re
+                    for line in result.stdout.split('\n'):
+                        if 'Server Version' in line:
+                            match = re.search(r'v\d+\.\d+\.\d+[^\s,)"]*', line)
+                            if match:
+                                cluster_info["kubernetes_version"] = match.group(0)
+                                print(f"[get_k8s_version] Fallback success: {match.group(0)}")
+                                return
+                
+                print(f"[get_k8s_version] All methods failed")
+                
+            except Exception as e:
+                print(f"[get_k8s_version] Exception: {e}")
+        
+        # Pobierz endpoint API
+        async def get_api_endpoint():
+            try:
+                result = await loop.run_in_executor(
+                    executor,
+                    lambda: subprocess.run([
+                        "kubectl", "cluster-info", "--context", f"{provider}-{cluster_name}"
+                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=3)
+                )
+                
+                if result.returncode == 0:
+                    # Parse: "Kubernetes control plane is running at https://0.0.0.0:xxxxx"
+                    for line in result.stdout.split('\n'):
+                        if 'control plane is running at' in line.lower():
+                            endpoint = line.split('at')[1].strip()
+                            cluster_info["api_endpoint"] = endpoint
+                            break
+            except Exception as e:
+                print(f"Error getting API endpoint: {e}")
+        
+        # Pobierz datę utworzenia (z Docker container)
+        async def get_creation_date():
+            try:
+                # Pobierz info o kontenerze klastra
+                result = await loop.run_in_executor(
+                    executor,
+                    lambda: subprocess.run([
+                        "docker", "inspect", f"{provider}-{cluster_name}-server-0",
+                        "--format", "{{.Created}}"
+                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=2)
+                )
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    # Parse ISO timestamp
+                    from datetime import datetime
+                    created_str = result.stdout.strip()
+                    try:
+                        created_dt = datetime.fromisoformat(created_str.replace('Z', '+00:00'))
+                        cluster_info["created_at"] = created_dt.strftime("%Y-%m-%d %H:%M:%S")
+                    except:
+                        cluster_info["created_at"] = created_str
+            except Exception as e:
+                print(f"Error getting creation date: {e}")
         
         # Pobierz zasoby (opcjonalnie - najwolniejsze)
         async def get_resources():
@@ -419,7 +741,14 @@ async def get_cluster_details_async(cluster_name: str, include_resources: bool =
                     cluster_info["resources"] = get_basic_node_info(cluster_name)
         
         # Uruchom wszystkie operacje równolegle
-        tasks = [check_status(), check_monitoring(), get_ports()]
+        tasks = [
+            check_status(), 
+            check_monitoring(), 
+            get_ports(),
+            get_k8s_version(),
+            get_api_endpoint(),
+            get_creation_date()
+        ]
         if include_resources:
             tasks.append(get_resources())
         
@@ -432,6 +761,133 @@ async def get_cluster_details_async(cluster_name: str, include_resources: bool =
 @app.get("/api/v1/health")
 async def health():
     return {"status": "healthy", "service": "ClusterMaster API"}
+
+@app.get("/api/v1/activity-log")
+async def get_activity_log(limit: int = 20):
+    """Get recent activity logs"""
+    try:
+        logs = activity_log.get_recent_logs(limit=limit)
+        return {
+            "success": True,
+            "logs": logs,
+            "total": len(logs)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching logs: {str(e)}")
+
+@app.get("/api/v1/activity-log/{cluster_name}")
+async def get_cluster_activity_log(cluster_name: str, limit: int = 10):
+    """Get activity logs for specific cluster"""
+    try:
+        logs = activity_log.get_logs_by_cluster(cluster_name, limit=limit)
+        return {
+            "success": True,
+            "cluster_name": cluster_name,
+            "logs": logs,
+            "total": len(logs)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching logs: {str(e)}")
+
+# ============================================
+# NOTIFICATION ENDPOINTS (SSE)
+# ============================================
+
+@app.get("/api/notifications/stream")
+async def notification_stream(request: Request):
+
+    user_id = request.query_params.get("user_id", "default_user")
+    
+    queue = await notification_service.register_user(user_id)
+    
+    async def event_generator():
+        try:
+            print(f"[SSE] Client connected: {user_id}")
+            
+            while True:
+                if await request.is_disconnected():
+                    print(f"[SSE] Client disconnected: {user_id}")
+                    break
+                
+                try:
+                    notification = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    
+                    yield {
+                        "event": "notification",
+                        "data": json.dumps(notification)
+                    }
+                    
+                except asyncio.TimeoutError:
+                    yield {
+                        "event": "ping",
+                        "data": json.dumps({"timestamp": datetime.now().isoformat()})
+                    }
+                    
+        except Exception as e:
+            print(f"[SSE] Error in event stream: {e}")
+        finally:
+            notification_service.unregister_user(user_id)
+            print(f"[SSE] Cleaned up connection for: {user_id}")
+    
+    return EventSourceResponse(event_generator())
+
+@app.get("/api/notifications/history")
+async def get_notification_history(limit: int = 20):
+    """Get notification history for current user"""
+    user_id = "default_user"
+    
+    try:
+        notifications = notification_service.get_notification_history(user_id, limit=limit)
+        unread_count = notification_service.get_unread_count(user_id)
+        
+        return {
+            "success": True,
+            "notifications": notifications,
+            "unread_count": unread_count,
+            "total": len(notifications)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching notifications: {str(e)}")
+
+@app.post("/api/notifications/read-all")
+async def mark_all_notifications_as_read():
+    """Mark all notifications as read"""
+    # TODO: Get user_id from authentication
+    user_id = "default_user"
+    
+    try:
+        notification_service.mark_all_as_read(user_id)
+        return {"success": True, "message": "All notifications marked as read"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error marking notifications: {str(e)}")
+
+@app.post("/api/notifications/{notification_id}/read")
+async def mark_notification_as_read(notification_id: str):
+    """Mark a notification as read"""
+    # TODO: Get user_id from authentication
+    user_id = "default_user"
+    
+    try:
+        notification_service.mark_as_read(user_id, notification_id)
+        return {"success": True, "message": "Notification marked as read"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error marking notification: {str(e)}")
+
+@app.delete("/api/notifications/{notification_id}")
+async def delete_notification(notification_id: str):
+    """Delete a notification"""
+    # TODO: Get user_id from authentication
+    user_id = "default_user"
+    
+    try:
+        notification_service.delete_notification(user_id, notification_id)
+        return {"success": True, "message": "Notification deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting notification: {str(e)}")
+
+# ============================================
+# END NOTIFICATION ENDPOINTS
+# ============================================
 
 @app.post("/api/v1/cache/clear")
 async def clear_cache():
@@ -514,10 +970,10 @@ async def list_clusters():
 
 @app.get("/api/v1/local-cluster")
 async def list_clusters_detailed(include_resources: bool = False):
-    """Lista klastrów Kind i k3d z dodatkowymi informacjami - zoptymalizowana wersja z cache
+    """Lista klastrów Kind, k3d i EKS z dodatkowymi informacjami - zoptymalizowana wersja z cache
     
     Args:
-        include_resources: Czy dołączyć szczegółowe informacje o zasobach (Docker stats) - wolniejsze
+        include_resources: Czy dołączyć szczegółowe informacje o zasobach (Docker stats lub kubectl top) - wolniejsze
     """
     
     # Sprawdź cache (osobny klucz dla wersji z/bez zasobów)
@@ -540,6 +996,24 @@ async def list_clusters_detailed(include_resources: bool = False):
         cluster_names.extend(k3d_clusters)
     except Exception as e:
         print(f"Error fetching k3d clusters: {e}")
+    
+    # Pobierz klastry EKS (z folderu terraform_states)
+    try:
+        # Użyj ścieżki względem lokalizacji tego pliku (backend/)
+        terraform_states_dir = Path(__file__).parent / "terraform_states"
+        print(f"[list_clusters_detailed] Checking EKS clusters in: {terraform_states_dir}")
+        if terraform_states_dir.exists():
+            for cluster_dir in terraform_states_dir.iterdir():
+                if cluster_dir.is_dir():
+                    # Sprawdź czy to klaster EKS (ma plik terraform.tfstate)
+                    tfstate_file = cluster_dir / "terraform.tfstate"
+                    if tfstate_file.exists():
+                        print(f"[list_clusters_detailed] Found EKS cluster: {cluster_dir.name}")
+                        cluster_names.append(cluster_dir.name)
+        else:
+            print(f"[list_clusters_detailed] EKS directory does not exist: {terraform_states_dir}")
+    except Exception as e:
+        print(f"Error fetching EKS clusters: {e}")
     
     if not cluster_names:
         return {"clusters": []}
@@ -640,6 +1114,29 @@ async def create_cluster(cluster_data: dict):
             # Wyczyść cache
             _cluster_cache.clear()
             
+            # Log operation
+            activity_log.log_operation(
+                operation_type="cluster_create",
+                cluster_name=cluster_name,
+                details=f"Utworzono klaster k3d z {node_count} węzłami",
+                status="success",
+                metadata={"provider": "k3d", "node_count": node_count, "agents": agents, "servers": servers}
+            )
+            
+            # Send notification
+            await notification_service.send_notification(
+                user_id="default_user",  # TODO: Get from auth
+                notification_type="cluster_created",
+                severity="success",
+                title="✅ Klaster utworzony",
+                message=f"Klaster k3d '{cluster_name}' został pomyślnie utworzony z {node_count} węzłami",
+                metadata={
+                    "cluster": cluster_name,
+                    "provider": "k3d",
+                    "node_count": node_count
+                }
+            )
+            
             # Instalacja monitoringu jeśli zaznaczone
             if install_monitoring:
                 print(f"Installing monitoring for k3d cluster {cluster_name}...")
@@ -661,6 +1158,15 @@ async def create_cluster(cluster_data: dict):
             return cluster_result
             
         except Exception as e:
+            # Send error notification
+            await notification_service.send_notification(
+                user_id="default_user",  # TODO: Get from auth
+                notification_type="cluster_create_error",
+                severity="error",
+                title="❌ Błąd tworzenia klastra",
+                message=f"Nie udało się utworzyć klastra k3d '{cluster_name}': {str(e)}",
+                metadata={"cluster": cluster_name, "provider": "k3d"}
+            )
             return {"error": f"Błąd podczas tworzenia klastra k3d: {str(e)}", "status": "error"}
     
     # === KIND IMPLEMENTATION (ORIGINAL) ===
@@ -722,6 +1228,29 @@ async def create_cluster(cluster_data: dict):
         # Wyczyść cache
         _cluster_cache.clear()
         
+        # Log operation
+        activity_log.log_operation(
+            operation_type="cluster_create",
+            cluster_name=cluster_name,
+            details=f"Utworzono klaster Kind z {node_count} węzłami",
+            status="success",
+            metadata={"provider": "kind", "node_count": node_count}
+        )
+        
+        # Send notification
+        await notification_service.send_notification(
+            user_id="default_user",  # TODO: Get from auth
+            notification_type="cluster_created",
+            severity="success",
+            title="✅ Klaster utworzony",
+            message=f"Klaster Kind '{cluster_name}' został pomyślnie utworzony z {node_count} węzłami",
+            metadata={
+                "cluster": cluster_name,
+                "provider": "kind",
+                "node_count": node_count
+            }
+        )
+        
         # DODAJ INSTALACJĘ MONITORINGU JEŚLI ZAZNACZONE
         if install_monitoring:
             print(f"Installing monitoring for cluster {cluster_name}...")
@@ -756,6 +1285,15 @@ async def create_cluster(cluster_data: dict):
         return cluster_result
         
     except Exception as e:
+        # Send error notification
+        await notification_service.send_notification(
+            user_id="default_user",  # TODO: Get from auth
+            notification_type="cluster_create_error",
+            severity="error",
+            title="❌ Błąd tworzenia klastra",
+            message=f"Nie udało się utworzyć klastra Kind '{cluster_name}': {str(e)}",
+            metadata={"cluster": cluster_name, "provider": "kind"}
+        )
         return {
             "error": f"Błąd podczas tworzenia klastra: {str(e)}",
             "cluster_name": cluster_name
@@ -776,11 +1314,29 @@ async def delete_cluster(cluster_name: str):
         try:
             success = k3d_service.delete_cluster(cluster_name)
             if not success:
+                # Log error
+                activity_log.log_operation(
+                    operation_type="cluster_delete",
+                    cluster_name=cluster_name,
+                    details="Nie udało się usunąć klastra k3d",
+                    status="error",
+                    metadata={"provider": "k3d"}
+                )
+                
                 return {
                     "error": f"Nie udało się usunąć klastra k3d: {cluster_name}",
                     "provider": "k3d"
                 }
         except Exception as e:
+            # Log exception
+            activity_log.log_operation(
+                operation_type="cluster_delete",
+                cluster_name=cluster_name,
+                details="Wyjątek podczas usuwania klastra k3d",
+                status="error",
+                metadata={"provider": "k3d", "error": str(e)}
+            )
+            
             return {
                 "error": f"Błąd podczas usuwania klastra k3d: {str(e)}",
                 "provider": "k3d"
@@ -789,6 +1345,15 @@ async def delete_cluster(cluster_name: str):
         result = run_kind_command(["delete", "cluster", "--name", cluster_name])
         
         if result["returncode"] != 0:
+            # Log error
+            activity_log.log_operation(
+                operation_type="cluster_delete",
+                cluster_name=cluster_name,
+                details="Nie udało się usunąć klastra Kind",
+                status="error",
+                metadata={"provider": "kind", "error": result['stderr']}
+            )
+            
             return {
                 "error": f"Nie udało się usunąć klastra Kind: {result['stderr']}",
                 "debug": result,
@@ -798,11 +1363,270 @@ async def delete_cluster(cluster_name: str):
     # Wyczyść cache
     _cluster_cache.clear()
     
+    # Log successful deletion
+    activity_log.log_operation(
+        operation_type="cluster_delete",
+        cluster_name=cluster_name,
+        details=f"Usunięto klaster {provider.upper()}",
+        status="success",
+        metadata={"provider": provider}
+    )
+    
+    # Send notification
+    await notification_service.send_notification(
+        user_id="default_user",  # TODO: Get from auth
+        notification_type="cluster_deleted",
+        severity="info",
+        title="🗑️ Klaster usunięty",
+        message=f"Klaster '{cluster_name}' ({provider.upper()}) został pomyślnie usunięty",
+        metadata={
+            "cluster": cluster_name,
+            "provider": provider
+        }
+    )
+    
     return {
         "message": f"Klaster {cluster_name} został usunięty",
         "cleanup": cleanup_result,
         "provider": provider
     }
+
+@app.get("/api/v1/local-cluster/{cluster_name}/nodes/{node_name}/logs")
+async def get_node_logs(cluster_name: str, node_name: str):
+    """Pobierz logi i szczegóły węzła"""
+    try:
+        provider = detect_cluster_provider(cluster_name)
+        context = get_cluster_context(cluster_name, provider)
+        
+        print(f"[get_node_logs] cluster={cluster_name}, node={node_name}, provider={provider}, context={context}")
+        
+        # Przygotuj environment variables (dla EKS potrzebne są AWS credentials)
+        env = os.environ.copy()
+        if provider == "eks":
+            credentials = eks_service.get_cluster_credentials(cluster_name)
+            if credentials:
+                env.update({
+                    "AWS_ACCESS_KEY_ID": credentials["aws_access_key"],
+                    "AWS_SECRET_ACCESS_KEY": credentials["aws_secret_key"],
+                    "AWS_DEFAULT_REGION": credentials["region"]
+                })
+                print(f"[get_node_logs] Using stored AWS credentials for cluster {cluster_name}")
+            else:
+                print(f"[get_node_logs] Warning: No stored credentials found for EKS cluster {cluster_name}")
+        
+        # Pobierz szczegóły węzła (describe)
+        describe_result = subprocess.run([
+            "kubectl", "describe", "node", node_name, "--context", context
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10, env=env)
+        
+        if describe_result.returncode != 0:
+            print(f"[get_node_logs] Error getting node details: {describe_result.stderr}")
+            node_details = f"Failed to get node details\nError: {describe_result.stderr}"
+        else:
+            node_details = describe_result.stdout
+        
+        # Pobierz eventy dla węzła
+        events_result = subprocess.run([
+            "kubectl", "get", "events", "--all-namespaces",
+            "--field-selector", f"involvedObject.name={node_name}",
+            "--context", context,
+            "--sort-by", ".lastTimestamp"
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10, env=env)
+        
+        events = events_result.stdout if events_result.returncode == 0 else "No events found"
+        
+        # Pobierz pody uruchomione na węźle
+        pods_result = subprocess.run([
+            "kubectl", "get", "pods", "--all-namespaces",
+            "--field-selector", f"spec.nodeName={node_name}",
+            "--context", context,
+            "-o", "wide"
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10, env=env)
+        
+        pods = pods_result.stdout if pods_result.returncode == 0 else "No pods found"
+        
+        # Pobierz conditions węzła
+        conditions_result = subprocess.run([
+            "kubectl", "get", "node", node_name,
+            "--context", context,
+            "-o", "jsonpath={.status.conditions[*].type}:{.status.conditions[*].status}"
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5, env=env)
+        
+        conditions = conditions_result.stdout if conditions_result.returncode == 0 else "Unknown"
+        
+        return {
+            "success": True,
+            "node_name": node_name,
+            "cluster_name": cluster_name,
+            "provider": provider,
+            "describe": node_details,
+            "events": events,
+            "pods": pods,
+            "conditions": conditions
+        }
+        
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Request timeout while fetching node logs")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching node logs: {str(e)}")
+
+@app.post("/api/v1/local-cluster/{cluster_name}/stop")
+async def stop_cluster(cluster_name: str):
+    """Zatrzymaj klaster (tylko k3d, Kind nie obsługuje stop)"""
+    provider = detect_cluster_provider(cluster_name)
+    
+    if provider != "k3d":
+        return {
+            "error": "Stop/Start jest obsługiwany tylko dla klastrów k3d",
+            "provider": provider
+        }
+    
+    try:
+        result = subprocess.run([
+            "k3d", "cluster", "stop", cluster_name
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30)
+        
+        if result.returncode == 0:
+            activity_log.log_operation(
+                operation_type="cluster_stop",
+                cluster_name=cluster_name,
+                details=f"Zatrzymano klaster k3d",
+                status="success",
+                metadata={"provider": "k3d"}
+            )
+            
+            await notification_service.send_notification(
+                user_id="default_user",
+                notification_type="cluster_stopped",
+                severity="info",
+                title="⏸️ Klaster zatrzymany",
+                message=f"Klaster '{cluster_name}' został zatrzymany",
+                metadata={"cluster": cluster_name, "provider": "k3d"}
+            )
+            
+            return {"success": True, "message": f"Klaster {cluster_name} został zatrzymany"}
+        else:
+            return {"error": result.stderr, "success": False}
+    except Exception as e:
+        return {"error": str(e), "success": False}
+
+@app.post("/api/v1/local-cluster/{cluster_name}/start")
+async def start_cluster(cluster_name: str):
+    """Uruchom zatrzymany klaster (tylko k3d)"""
+    provider = detect_cluster_provider(cluster_name)
+    
+    if provider != "k3d":
+        return {
+            "error": "Stop/Start jest obsługiwany tylko dla klastrów k3d",
+            "provider": provider
+        }
+    
+    try:
+        result = subprocess.run([
+            "k3d", "cluster", "start", cluster_name
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=60)
+        
+        if result.returncode == 0:
+            activity_log.log_operation(
+                operation_type="cluster_start",
+                cluster_name=cluster_name,
+                details=f"Uruchomiono klaster k3d",
+                status="success",
+                metadata={"provider": "k3d"}
+            )
+            
+            await notification_service.send_notification(
+                user_id="default_user",
+                notification_type="cluster_started",
+                severity="success",
+                title="▶️ Klaster uruchomiony",
+                message=f"Klaster '{cluster_name}' został uruchomiony",
+                metadata={"cluster": cluster_name, "provider": "k3d"}
+            )
+            
+            return {"success": True, "message": f"Klaster {cluster_name} został uruchomiony"}
+        else:
+            return {"error": result.stderr, "success": False}
+    except Exception as e:
+        return {"error": str(e), "success": False}
+
+@app.post("/api/v1/local-cluster/{cluster_name}/restart")
+async def restart_cluster(cluster_name: str):
+    """Restart klastra (stop + start dla k3d, delete + create dla Kind)"""
+    provider = detect_cluster_provider(cluster_name)
+    
+    if provider == "k3d":
+        # Stop
+        stop_result = subprocess.run([
+            "k3d", "cluster", "stop", cluster_name
+        ], capture_output=True, text=True, timeout=30)
+        
+        if stop_result.returncode != 0:
+            return {"error": "Nie udało się zatrzymać klastra", "success": False}
+        
+        # Start
+        start_result = subprocess.run([
+            "k3d", "cluster", "start", cluster_name
+        ], capture_output=True, text=True, timeout=60)
+        
+        if start_result.returncode == 0:
+            activity_log.log_operation(
+                operation_type="cluster_restart",
+                cluster_name=cluster_name,
+                details=f"Zrestartowano klaster k3d",
+                status="success",
+                metadata={"provider": "k3d"}
+            )
+            
+            await notification_service.send_notification(
+                user_id="default_user",
+                notification_type="cluster_restarted",
+                severity="success",
+                title="🔄 Klaster zrestartowany",
+                message=f"Klaster '{cluster_name}' został zrestartowany",
+                metadata={"cluster": cluster_name, "provider": "k3d"}
+            )
+            
+            return {"success": True, "message": f"Klaster {cluster_name} został zrestartowany"}
+        else:
+            return {"error": start_result.stderr, "success": False}
+    else:
+        return {
+            "error": "Restart nie jest obsługiwany dla klastrów Kind (użyj delete + create)",
+            "provider": "kind",
+            "success": False
+        }
+
+@app.get("/api/v1/local-cluster/{cluster_name}/kubeconfig")
+async def export_kubeconfig(cluster_name: str):
+    """Eksportuj kubeconfig dla klastra"""
+    from fastapi.responses import Response
+    
+    provider = detect_cluster_provider(cluster_name)
+    
+    try:
+        if provider == "k3d":
+            result = subprocess.run([
+                "k3d", "kubeconfig", "get", cluster_name
+            ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
+        else:  # kind
+            result = subprocess.run([
+                "kind", "get", "kubeconfig", "--name", cluster_name
+            ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
+        
+        if result.returncode == 0:
+            # Return as downloadable file
+            return Response(
+                content=result.stdout,
+                media_type="application/x-yaml",
+                headers={
+                    "Content-Disposition": f"attachment; filename={cluster_name}-kubeconfig.yaml"
+                }
+            )
+        else:
+            return {"error": result.stderr, "success": False}
+    except Exception as e:
+        return {"error": str(e), "success": False}
 
 @app.get("/api/v1/local-cluster/{cluster_name}/status")
 async def get_cluster_status(cluster_name: str):
@@ -1151,29 +1975,311 @@ async def create_cluster_with_monitoring(cluster_data: dict):
             "monitoring_error": f"Klaster utworzony, ale monitoring nie został zainstalowany: {str(e)}"
         }
 
+# Helper function to check if port-forward is active
+def check_port_forward_active(cluster_name: str, port: int) -> bool:
+    """Check if kubectl port-forward is running for the given cluster and port"""
+    try:
+        import psutil
+        
+        # Get all running processes
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                cmdline = proc.info.get('cmdline')
+                if cmdline and 'kubectl' in ' '.join(cmdline):
+                    # Check if it's a port-forward command for this cluster
+                    cmdline_str = ' '.join(cmdline)
+                    if 'port-forward' in cmdline_str and cluster_name in cmdline_str and str(port) in cmdline_str:
+                        return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        
+        return False
+    except ImportError:
+        # psutil not installed, return False
+        return False
+    except Exception:
+        return False
+
 # Zastąp istniejące endpointy monitoringu:
 @app.post("/api/v1/monitoring/install/{cluster_name}")
 async def install_monitoring_endpoint(cluster_name: str):
     """Zainstaluj monitoring w istniejącym klastrze"""
+    
+    # Log operation start (in-progress)
+    log_entry = activity_log.log_operation(
+        operation_type="monitoring_install",
+        cluster_name=cluster_name,
+        details="Instalowanie Prometheus + Grafana...",
+        status="in-progress",
+        metadata={"components": ["prometheus", "grafana"]}
+    )
+    
     try:
         result = helm_service.install_monitoring_stack(cluster_name)
+        
+        # Collect output from result
+        output_lines = []
+        if result.get("prometheus_output"):
+            output_lines.append("=== Prometheus Installation ===")
+            output_lines.append(result.get("prometheus_output", ""))
+        if result.get("grafana_output"):
+            output_lines.append("\n=== Grafana Installation ===")
+            output_lines.append(result.get("grafana_output", ""))
+        if result.get("message"):
+            output_lines.append(f"\n{result.get('message')}")
+        
+        combined_output = "\n".join(output_lines)
+        
+        # Update log operation status
+        if result.get("success"):
+            activity_log.update_operation_status(
+                operation_id=log_entry["id"],
+                status="success",
+                details="Zainstalowano Prometheus + Grafana",
+                metadata={
+                    "components": ["prometheus", "grafana"],
+                    "output": combined_output,
+                    "prometheus_port": result.get("prometheus_port"),
+                    "grafana_port": result.get("grafana_port")
+                }
+            )
+            
+            # Send success notification
+            await notification_service.send_notification(
+                user_id="default_user",  # TODO: Get from auth
+                notification_type="monitoring_installed",
+                severity="success",
+                title="📊 Monitoring zainstalowany",
+                message=f"Prometheus + Grafana zostały zainstalowane w klastrze '{cluster_name}'",
+                metadata={
+                    "cluster": cluster_name,
+                    "prometheus_port": result.get("prometheus_port"),
+                    "grafana_port": result.get("grafana_port")
+                }
+            )
+        else:
+            activity_log.update_operation_status(
+                operation_id=log_entry["id"],
+                status="error",
+                details=f"Błąd instalacji: {result.get('error', 'Unknown error')}",
+                metadata={
+                    "error": result.get('error', 'Unknown error'),
+                    "output": combined_output or result.get("error", "")
+                }
+            )
+            
+            # Send error notification
+            await notification_service.send_notification(
+                user_id="default_user",  # TODO: Get from auth
+                notification_type="monitoring_install_error",
+                severity="error",
+                title="❌ Błąd instalacji monitoringu",
+                message=f"Nie udało się zainstalować monitoringu w klastrze '{cluster_name}': {result.get('error', 'Unknown error')}",
+                metadata={"cluster": cluster_name}
+            )
+        
         return {
             "cluster_name": cluster_name,
             **result
         }
     except Exception as e:
+        activity_log.update_operation_status(
+            operation_id=log_entry["id"],
+            status="error",
+            details=f"Błąd instalacji: {str(e)}",
+            metadata={"error": str(e)}
+        )
+        
+        # Send error notification
+        await notification_service.send_notification(
+            user_id="default_user",  # TODO: Get from auth
+            notification_type="monitoring_install_error",
+            severity="error",
+            title="❌ Błąd instalacji monitoringu",
+            message=f"Wystąpił błąd podczas instalacji monitoringu w klastrze '{cluster_name}': {str(e)}",
+            metadata={"cluster": cluster_name}
+        )
+        
         return {
             "success": False,
             "error": f"Błąd instalacji monitoringu: {str(e)}"
         }
 
+@app.delete("/api/v1/monitoring/uninstall/{cluster_name}")
+async def uninstall_monitoring_endpoint(cluster_name: str):
+    """Usuń monitoring z klastra (CloudWatch dla EKS, Prometheus+Grafana dla Kind/k3d)"""
+    try:
+        # Wykryj typ klastra
+        provider = detect_cluster_provider(cluster_name)
+        
+        # Dla EKS usuń CloudWatch Observability add-on
+        if provider == "eks":
+            credentials = eks_service.get_cluster_credentials(cluster_name)
+            if not credentials:
+                raise HTTPException(status_code=404, detail=f"Nie znaleziono credentials dla klastra {cluster_name}")
+            
+            region = credentials["region"]
+            env = os.environ.copy()
+            env.update({
+                "AWS_ACCESS_KEY_ID": credentials["aws_access_key"],
+                "AWS_SECRET_ACCESS_KEY": credentials["aws_secret_key"],
+                "AWS_DEFAULT_REGION": region
+            })
+            
+            # Usuń CloudWatch Observability add-on
+            delete_result = subprocess.run([
+                "aws", "eks", "delete-addon",
+                "--cluster-name", cluster_name,
+                "--addon-name", "amazon-cloudwatch-observability",
+                "--region", region
+            ], capture_output=True, text=True, env=env, timeout=60, encoding='utf-8', errors='replace')
+            
+            if delete_result.returncode == 0:
+                # Log operation
+                activity_log.log_operation(
+                    operation_type="monitoring_uninstall",
+                    cluster_name=cluster_name,
+                    details="Usunięto CloudWatch Observability add-on",
+                    status="success"
+                )
+                
+                # Send notification
+                await notification_service.send_notification(
+                    user_id="default_user",
+                    title="Monitoring odinstalowany",
+                    message=f"CloudWatch Container Insights został usunięty z klastra EKS '{cluster_name}'",
+                    notification_type="monitoring_uninstalled",
+                    severity="info",
+                    metadata={"cluster": cluster_name, "provider": "eks"}
+                )
+                
+                return {
+                    "success": True,
+                    "message": "CloudWatch Observability add-on został usunięty. Pody CloudWatch zostaną automatycznie usunięte.",
+                    "provider": "eks",
+                    "note": "Historyczne dane metryk i logi pozostają w CloudWatch. Możesz je usunąć ręcznie w AWS Console jeśli chcesz."
+                }
+            else:
+                error_msg = delete_result.stderr or "Nieznany błąd"
+                
+                # Log error
+                activity_log.log_operation(
+                    operation_type="monitoring_uninstall",
+                    cluster_name=cluster_name,
+                    details="Błąd usuwania CloudWatch add-on",
+                    status="error",
+                    metadata={"error": error_msg}
+                )
+                
+                # Send error notification
+                await notification_service.send_notification(
+                    user_id="default_user",
+                    title="Błąd odinstalowania monitoringu",
+                    message=f"Nie udało się odinstalować CloudWatch z klastra '{cluster_name}': {error_msg}",
+                    notification_type="monitoring_uninstall_error",
+                    severity="error",
+                    metadata={"cluster": cluster_name, "error": error_msg}
+                )
+                
+                return {
+                    "success": False,
+                    "error": f"Błąd usuwania CloudWatch add-on: {error_msg}"
+                }
+        
+        # Dla Kind/k3d usuń Helm releases (Prometheus + Grafana)
+        else:
+            # Usuń prometheus
+            prometheus_result = app_service.uninstall_app(cluster_name, "prometheus")
+            
+            # Usuń grafana
+            grafana_result = app_service.uninstall_app(cluster_name, "grafana")
+            
+            # Sprawdź czy oba się udały
+            if prometheus_result.get("success") and grafana_result.get("success"):
+                # Usuń przypisane porty
+                port_manager.release_ports(cluster_name)
+                
+                # Log operation
+                activity_log.log_operation(
+                    operation_type="monitoring_uninstall",
+                    cluster_name=cluster_name,
+                    details="Usunięto Prometheus + Grafana",
+                    status="success"
+                )
+                
+                # Send notification
+                await notification_service.send_notification(
+                    user_id="default_user",
+                    title="Monitoring odinstalowany",
+                    message=f"Monitoring (Prometheus + Grafana) został usunięty z klastra '{cluster_name}'",
+                    notification_type="monitoring_uninstalled",
+                    severity="info",
+                    metadata={"cluster": cluster_name, "provider": provider}
+                )
+                
+                return {
+                    "success": True,
+                    "message": "Monitoring został usunięty",
+                    "provider": provider,
+                    "prometheus": prometheus_result,
+                    "grafana": grafana_result
+                }
+            else:
+                errors = []
+                if not prometheus_result.get("success"):
+                    errors.append(f"Prometheus: {prometheus_result.get('error', 'Unknown error')}")
+                if not grafana_result.get("success"):
+                    errors.append(f"Grafana: {grafana_result.get('error', 'Unknown error')}")
+                
+                error_message = "; ".join(errors)
+                
+                # Log operation error
+                activity_log.log_operation(
+                    operation_type="monitoring_uninstall",
+                    cluster_name=cluster_name,
+                    details="Błąd podczas usuwania monitoringu",
+                    status="error",
+                    metadata={"error": error_message}
+                )
+                
+                # Send error notification
+                await notification_service.send_notification(
+                    user_id="default_user",
+                    title="Błąd odinstalowania monitoringu",
+                    message=f"Nie udało się odinstalować monitoringu z klastra '{cluster_name}': {error_message}",
+                    notification_type="monitoring_uninstall_error",
+                    severity="error",
+                    metadata={"cluster": cluster_name, "error": error_message}
+                )
+                
+                return {
+                    "success": False,
+                    "error": error_message
+                }
+    except Exception as e:
+        # Log exception
+        activity_log.log_operation(
+            operation_type="monitoring_uninstall",
+            cluster_name=cluster_name,
+            details="Wyjątek podczas usuwania monitoringu",
+            status="error",
+            metadata={"error": str(e)}
+        )
+        
+        return {
+            "success": False,
+            "error": f"Błąd usuwania monitoringu: {str(e)}"
+        }
+
 @app.get("/api/v1/monitoring/status/{cluster_name}")
 async def get_monitoring_status_endpoint(cluster_name: str):
-    """Sprawdź status monitoringu"""
+    """Sprawdź szczegółowy status monitoringu"""
     try:
-        context = f"kind-{cluster_name}"
+        # Detect provider
+        provider = detect_cluster_provider(cluster_name)
+        context = get_cluster_context(cluster_name, provider)
         
-        # Sprawdź pody monitoringu
+        # Get pods in monitoring namespace
         kubectl_result = subprocess.run([
             "kubectl", "get", "pods", 
             "--namespace", "monitoring",
@@ -1191,24 +2297,80 @@ async def get_monitoring_status_endpoint(cluster_name: str):
         import json
         pods_data = json.loads(kubectl_result.stdout)
         
-        prometheus_pods = len([p for p in pods_data.get("items", []) if "prometheus" in p["metadata"]["name"]])
-        grafana_pods = len([p for p in pods_data.get("items", []) if "grafana" in p["metadata"]["name"]])
-        running_pods = len([p for p in pods_data.get("items", []) if p["status"]["phase"] == "Running"])
-        total_pods = len(pods_data.get("items", []))
+        # Organize pods by type
+        prometheus_pods_list = []
+        grafana_pods_list = []
+        
+        for pod in pods_data.get("items", []):
+            pod_name = pod["metadata"]["name"]
+            pod_status = pod["status"]["phase"]
+            
+            # Check if pod is ready
+            ready = False
+            if "containerStatuses" in pod["status"]:
+                ready = all(c.get("ready", False) for c in pod["status"]["containerStatuses"])
+            
+            pod_info = {
+                "name": pod_name,
+                "status": pod_status,
+                "ready": ready
+            }
+            
+            if "prometheus" in pod_name.lower():
+                prometheus_pods_list.append(pod_info)
+            elif "grafana" in pod_name.lower():
+                grafana_pods_list.append(pod_info)
+        
+        # Count running pods
+        prometheus_running = sum(1 for p in prometheus_pods_list if p["ready"])
+        grafana_running = sum(1 for p in grafana_pods_list if p["ready"])
+        
+        # Get services
+        services_result = subprocess.run([
+            "kubectl", "get", "svc",
+            "--namespace", "monitoring",
+            "--context", context,
+            "-o", "json"
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace')
+        
+        services = {}
+        if services_result.returncode == 0:
+            services_data = json.loads(services_result.stdout)
+            for svc in services_data.get("items", []):
+                svc_name = svc["metadata"]["name"]
+                svc_type = svc["spec"].get("type", "ClusterIP")
+                ports = []
+                for p in svc["spec"].get("ports", []):
+                    port_info = {
+                        "port": p.get("port"),
+                        "targetPort": p.get("targetPort"),
+                        "protocol": p.get("protocol", "TCP")
+                    }
+                    if "nodePort" in p:
+                        port_info["nodePort"] = p.get("nodePort")
+                    ports.append(port_info)
+                
+                services[svc_name] = {
+                    "type": svc_type,
+                    "ports": ports
+                }
         
         return {
             "cluster_name": cluster_name,
             "monitoring_installed": True,
             "namespace": "monitoring",
-            "total_pods": total_pods,
-            "running_pods": running_pods,
-            "prometheus_pods": prometheus_pods,
-            "grafana_pods": grafana_pods,
-            "status": "healthy" if total_pods > 0 and running_pods == total_pods else "starting",
-            "access_info": {
-                "prometheus": f"kubectl port-forward svc/prometheus-server 9090:80 -n monitoring --context {context}",
-                "grafana": f"kubectl port-forward svc/grafana 3000:80 -n monitoring --context {context} (admin/admin123)"
-            }
+            "prometheus": {
+                "pod_count": len(prometheus_pods_list),
+                "running": prometheus_running,
+                "pods": prometheus_pods_list
+            },
+            "grafana": {
+                "pod_count": len(grafana_pods_list),
+                "running": grafana_running,
+                "pods": grafana_pods_list
+            },
+            "services": services,
+            "status": "healthy" if (prometheus_running + grafana_running) == (len(prometheus_pods_list) + len(grafana_pods_list)) and (len(prometheus_pods_list) + len(grafana_pods_list)) > 0 else "starting"
         }
         
     except Exception as e:
@@ -1219,18 +2381,43 @@ async def get_monitoring_status_endpoint(cluster_name: str):
 
 @app.get("/api/v1/monitoring/ports")
 async def get_all_cluster_ports():
-    """Zwróć wszystkie przypisane porty dla klastrów"""
+    """Zwróć wszystkie przypisane porty dla klastrów w formacie dla UI"""
     try:
         all_ports = port_manager.get_all_ports()
+        
+        # Transform to frontend format
+        clusters_data = {}
+        for cluster_name, ports in all_ports.items():
+            prometheus_port = ports.get("prometheus")
+            grafana_port = ports.get("grafana")
+            
+            # Check if port-forward is active for both services
+            prometheus_active = check_port_forward_active(cluster_name, prometheus_port) if prometheus_port else False
+            grafana_active = check_port_forward_active(cluster_name, grafana_port) if grafana_port else False
+            port_forward_active = prometheus_active and grafana_active
+            
+            clusters_data[cluster_name] = {
+                "ports": {
+                    "prometheus": prometheus_port,
+                    "grafana": grafana_port
+                },
+                "urls": {
+                    "prometheus_url": f"http://localhost:{prometheus_port}",
+                    "grafana_url": f"http://localhost:{grafana_port}"
+                },
+                "port_forward_active": port_forward_active,
+                "port_forward_details": {
+                    "prometheus_active": prometheus_active,
+                    "grafana_active": grafana_active
+                }
+            }
+        
         return {
-            "success": True,
-            "ports": all_ports
+            "total_clusters": len(clusters_data),
+            "clusters": clusters_data
         }
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Błąd pobierania portów: {str(e)}"
-        }
+        raise HTTPException(status_code=500, detail=f"Błąd pobierania portów: {str(e)}")
 
 @app.get("/api/v1/monitoring/ports/{cluster_name}")
 async def get_cluster_ports_endpoint(cluster_name: str):
@@ -1257,6 +2444,105 @@ async def get_cluster_ports_endpoint(cluster_name: str):
             "success": False,
             "error": f"Błąd pobierania portów: {str(e)}"
         }
+
+@app.post("/api/v1/monitoring/port-forward/start/{cluster_name}")
+async def start_port_forward(cluster_name: str):
+    """Start kubectl port-forward for monitoring services"""
+    try:
+        # Get assigned ports
+        ports = port_manager.get_cluster_ports(cluster_name)
+        if not ports:
+            raise HTTPException(status_code=404, detail=f"Brak portów dla klastra {cluster_name}")
+        
+        # Detect provider
+        provider = detect_cluster_provider(cluster_name)
+        context = get_cluster_context(cluster_name, provider)
+        
+        prometheus_port = ports.get("prometheus")
+        grafana_port = ports.get("grafana")
+        
+        # Start Prometheus port-forward in background
+        prometheus_process = subprocess.Popen([
+            "kubectl", "port-forward",
+            "-n", "monitoring",
+            "svc/prometheus-server",
+            f"{prometheus_port}:80",
+            "--context", context
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        # Start Grafana port-forward in background
+        grafana_process = subprocess.Popen([
+            "kubectl", "port-forward",
+            "-n", "monitoring",
+            "svc/grafana",
+            f"{grafana_port}:80",
+            "--context", context
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        # Wait a moment to check if they started successfully
+        await asyncio.sleep(1)
+        
+        # Check if processes are still running
+        prometheus_running = prometheus_process.poll() is None
+        grafana_running = grafana_process.poll() is None
+        
+        if not prometheus_running or not grafana_running:
+            # Kill any that did start
+            if prometheus_running:
+                prometheus_process.kill()
+            if grafana_running:
+                grafana_process.kill()
+            
+            return {
+                "success": False,
+                "error": "Port-forward nie uruchomił się poprawnie"
+            }
+        
+        return {
+            "success": True,
+            "message": "Port-forward uruchomiony",
+            "urls": {
+                "prometheus": f"http://localhost:{prometheus_port}",
+                "grafana": f"http://localhost:{grafana_port}"
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Błąd uruchamiania port-forward: {str(e)}")
+
+@app.post("/api/v1/monitoring/port-forward/stop/{cluster_name}")
+async def stop_port_forward(cluster_name: str):
+    """Stop kubectl port-forward for monitoring services"""
+    try:
+        import psutil
+        
+        # Get assigned ports
+        ports = port_manager.get_cluster_ports(cluster_name)
+        if not ports:
+            raise HTTPException(status_code=404, detail=f"Brak portów dla klastra {cluster_name}")
+        
+        killed_count = 0
+        
+        # Find and kill port-forward processes for this cluster
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                cmdline = proc.info.get('cmdline')
+                if cmdline and 'kubectl' in ' '.join(cmdline):
+                    cmdline_str = ' '.join(cmdline)
+                    if 'port-forward' in cmdline_str and cluster_name in cmdline_str:
+                        proc.kill()
+                        killed_count += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        
+        return {
+            "success": True,
+            "message": f"Zatrzymano {killed_count} procesów port-forward",
+            "killed_processes": killed_count
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Błąd zatrzymywania port-forward: {str(e)}")
 
 @app.post("/api/v1/monitoring/install-metrics-server/{cluster_name}")
 async def install_metrics_server(cluster_name: str):
@@ -1297,12 +2583,220 @@ async def install_metrics_server(cluster_name: str):
             "error": f"Błąd instalacji metrics-server: {str(e)}"
         }
 
+@app.get("/api/v1/monitoring/cloudwatch-metrics/{cluster_name}")
+async def get_cloudwatch_metrics(cluster_name: str):
+    """
+    Pobierz metryki CloudWatch dla klastra EKS
+    """
+    try:
+        from datetime import datetime, timedelta
+        import json
+        
+        # Pobierz credentials
+        credentials = eks_service.get_cluster_credentials(cluster_name)
+        if not credentials:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Nie znaleziono credentials dla klastra {cluster_name}"
+            )
+        
+        region = credentials["region"]
+        env = os.environ.copy()
+        env.update({
+            "AWS_ACCESS_KEY_ID": credentials["aws_access_key"],
+            "AWS_SECRET_ACCESS_KEY": credentials["aws_secret_key"],
+            "AWS_DEFAULT_REGION": region
+        })
+        
+        # Przygotuj zakres czasu (ostatnie 5 minut)
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(minutes=5)
+        
+        metrics_data = {}
+        
+        # Funkcja pomocnicza do pobierania metryk
+        def get_metric(namespace, metric_name, dimensions, stat="Average"):
+            try:
+                dim_args = []
+                for k, v in dimensions.items():
+                    dim_args.extend(["Name=" + k, "Value=" + v])
+                
+                result = subprocess.run([
+                    "aws", "cloudwatch", "get-metric-statistics",
+                    "--namespace", namespace,
+                    "--metric-name", metric_name,
+                    "--dimensions", *dim_args,
+                    "--start-time", start_time.isoformat(),
+                    "--end-time", end_time.isoformat(),
+                    "--period", "300",  # 5 minut
+                    "--statistics", stat,
+                    "--region", region,
+                    "--output", "json"
+                ], capture_output=True, text=True, env=env, timeout=10, encoding='utf-8', errors='replace')
+                
+                if result.returncode == 0:
+                    data = json.loads(result.stdout)
+                    datapoints = data.get("Datapoints", [])
+                    if datapoints:
+                        # Weź ostatni datapoint
+                        latest = max(datapoints, key=lambda x: x["Timestamp"])
+                        return latest.get(stat, 0)
+                return None
+            except Exception as e:
+                print(f"[get_cloudwatch_metrics] Error getting metric {metric_name}: {e}")
+                return None
+        
+        # Pobierz CPU utilization dla klastra
+        cpu_util = get_metric(
+            "ContainerInsights",
+            "cluster_cpu_utilization",
+            {"ClusterName": cluster_name},
+            "Average"
+        )
+        if cpu_util is not None:
+            metrics_data["cpu_utilization"] = round(cpu_util, 2)
+        
+        # Pobierz Memory utilization
+        mem_util = get_metric(
+            "ContainerInsights",
+            "cluster_memory_utilization",
+            {"ClusterName": cluster_name},
+            "Average"
+        )
+        if mem_util is not None:
+            metrics_data["memory_utilization"] = round(mem_util, 2)
+        
+        # Pobierz liczbę running pods
+        pod_count = get_metric(
+            "ContainerInsights",
+            "cluster_number_of_running_pods",
+            {"ClusterName": cluster_name},
+            "Average"
+        )
+        if pod_count is not None:
+            metrics_data["running_pods"] = int(pod_count)
+        
+        # Pobierz liczbę failed pods
+        failed_pods = get_metric(
+            "ContainerInsights",
+            "cluster_failed_pod_count",
+            {"ClusterName": cluster_name},
+            "Average"
+        )
+        if failed_pods is not None:
+            metrics_data["failed_pods"] = int(failed_pods)
+        
+        # Pobierz network RX bytes
+        net_rx = get_metric(
+            "ContainerInsights",
+            "cluster_network_rx_bytes",
+            {"ClusterName": cluster_name},
+            "Average"
+        )
+        if net_rx is not None:
+            metrics_data["network_rx_bytes"] = round(net_rx / 1024 / 1024, 2)  # MB
+        
+        # Pobierz network TX bytes
+        net_tx = get_metric(
+            "ContainerInsights",
+            "cluster_network_tx_bytes",
+            {"ClusterName": cluster_name},
+            "Average"
+        )
+        if net_tx is not None:
+            metrics_data["network_tx_bytes"] = round(net_tx / 1024 / 1024, 2)  # MB
+        
+        # Pobierz liczbę nodes
+        node_count = get_metric(
+            "ContainerInsights",
+            "cluster_node_count",
+            {"ClusterName": cluster_name},
+            "Average"
+        )
+        if node_count is not None:
+            metrics_data["node_count"] = int(node_count)
+        
+        return {
+            "cluster_name": cluster_name,
+            "region": region,
+            "metrics": metrics_data,
+            "timestamp": end_time.isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Błąd podczas pobierania metryk CloudWatch: {str(e)}"
+        )
+
 # BACKUP ENDPOINTS
 
 @app.post("/api/v1/backup/create/{cluster_name}")
 async def create_backup(cluster_name: str, backup_name: str = None):
     """Utwórz backup klastra"""
+    
+    # Log operation start (in-progress)
+    log_entry = activity_log.log_operation(
+        operation_type="backup_create",
+        cluster_name=cluster_name,
+        details=f"Tworzenie backupu{f': {backup_name}' if backup_name else ''}...",
+        status="in-progress",
+        metadata={"backup_name": backup_name}
+    )
+    
     result = backup_service.create_cluster_backup(cluster_name, backup_name)
+    
+    # Update log operation status
+    if result.get("success"):
+        activity_log.update_operation_status(
+            operation_id=log_entry["id"],
+            status="success",
+            details=f"Utworzono backup: {result.get('backup_name', backup_name)}",
+            metadata={
+                "backup_name": result.get("backup_name", backup_name),
+                "output": result.get("output", ""),
+                "command": result.get("command", "")
+            }
+        )
+        
+        # Send success notification
+        await notification_service.send_notification(
+            user_id="default_user",  # TODO: Get from auth
+            notification_type="backup_created",
+            severity="success",
+            title="💾 Backup utworzony",
+            message=f"Backup '{result.get('backup_name', backup_name)}' klastra '{cluster_name}' został pomyślnie utworzony",
+            metadata={
+                "cluster": cluster_name,
+                "backup_name": result.get("backup_name", backup_name)
+            }
+        )
+    else:
+        activity_log.update_operation_status(
+            operation_id=log_entry["id"],
+            status="error",
+            details="Błąd podczas tworzenia backupu",
+            metadata={
+                "error": result.get("error", "Unknown error"),
+                "output": result.get("output", ""),
+                "command": result.get("command", "")
+            }
+        )
+        
+        # Send error notification
+        await notification_service.send_notification(
+            user_id="default_user",  # TODO: Get from auth
+            notification_type="backup_create_error",
+            severity="error",
+            title="❌ Błąd tworzenia backupu",
+            message=f"Nie udało się utworzyć backupu klastra '{cluster_name}': {result.get('error', 'Unknown error')}",
+            metadata={"cluster": cluster_name}
+        )
+    
+    return result
+    
     return result
 
 @app.post("/api/v1/backup/change-directory")
@@ -1317,6 +2811,11 @@ async def change_backup_directory(request: dict):
         }
     
     result = backup_service.change_backup_directory(new_directory)
+    
+    # Ustaw zmienną środowiskową żeby EKS service też używał tej samej lokalizacji
+    if result.get("success"):
+        os.environ["CLUSTER_BACKUP_DIR"] = new_directory
+    
     return result
 
 @app.get("/api/v1/backup/info")
@@ -1342,12 +2841,49 @@ async def get_backup_details(backup_name: str):
 @app.delete("/api/v1/backup/delete/{backup_name}")
 async def delete_backup(backup_name: str):
     """Usuń backup"""
-    return backup_service.delete_backup(backup_name)
+    result = backup_service.delete_backup(backup_name)
+    
+    # Send notification
+    if result.get("success"):
+        await notification_service.send_notification(
+            user_id="default_user",  # TODO: Get from auth
+            notification_type="backup_deleted",
+            severity="info",
+            title="🗑️ Backup usunięty",
+            message=f"Backup '{backup_name}' został pomyślnie usunięty",
+            metadata={"backup_name": backup_name}
+        )
+    
+    return result
 
 @app.post("/api/v1/backup/restore/{backup_name}")
 async def restore_backup(backup_name: str, new_cluster_name: str = None):
     """Przywróć klaster z backupu"""
     result = backup_service.restore_cluster_backup(backup_name, new_cluster_name)
+    
+    # Send notification based on result
+    if result.get("success"):
+        await notification_service.send_notification(
+            user_id="default_user",  # TODO: Get from auth
+            notification_type="backup_restored",
+            severity="success",
+            title="♻️ Backup przywrócony",
+            message=f"Klaster został pomyślnie przywrócony z backupu '{backup_name}'",
+            metadata={
+                "backup_name": backup_name,
+                "cluster": result.get("cluster_name", new_cluster_name)
+            }
+        )
+    else:
+        await notification_service.send_notification(
+            user_id="default_user",  # TODO: Get from auth
+            notification_type="backup_restore_error",
+            severity="error",
+            title="❌ Błąd przywracania backupu",
+            message=f"Nie udało się przywrócić klastra z backupu '{backup_name}': {result.get('error', 'Unknown error')}",
+            metadata={"backup_name": backup_name}
+        )
+    
     return result
 
 @app.get("/api/v1/backup/download/{backup_name}")
@@ -1371,7 +2907,7 @@ async def download_backup(backup_name: str):
 
 # ==================== APPS ENDPOINTS ====================
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Dict, Any
 
 class AppInstallRequest(BaseModel):
@@ -1380,14 +2916,111 @@ class AppInstallRequest(BaseModel):
     namespace: str
     helmChart: str
     values: Dict[str, Any] = {}
+    
+    # Properties for backward compatibility
+    @property
+    def app_name(self):
+        return self.name
+    
+    @property
+    def chart_name(self):
+        return self.helmChart
 
 @app.post("/api/v1/apps/install/{cluster_name}")
 async def install_app(cluster_name: str, app_data: AppInstallRequest):
     """Install application on cluster"""
+    
+    # Log operation start (in-progress)
+    log_entry = activity_log.log_operation(
+        operation_type="app_install",
+        cluster_name=cluster_name,
+        details=f"Instalowanie aplikacji: {app_data.app_name}...",
+        status="in-progress",
+        metadata={"app_name": app_data.app_name, "chart": app_data.chart_name}
+    )
+    
     try:
         result = app_service.install_app(cluster_name, app_data.dict())
+        
+        # Collect output (stdout/stderr from helm)
+        output_parts = []
+        if result.get("stdout"):
+            output_parts.append(result.get("stdout"))
+        if result.get("stderr"):
+            output_parts.append(result.get("stderr"))
+        if result.get("message"):
+            output_parts.append(result.get("message"))
+        
+        combined_output = "\n".join(output_parts) if output_parts else ""
+        
+        # Update log operation status
+        if result.get("success"):
+            activity_log.update_operation_status(
+                operation_id=log_entry["id"],
+                status="success",
+                details=f"Zainstalowano aplikację: {app_data.app_name}",
+                metadata={
+                    "app_name": app_data.app_name,
+                    "chart": app_data.chart_name,
+                    "output": combined_output,
+                    "namespace": app_data.namespace
+                }
+            )
+            
+            # Send success notification
+            await notification_service.send_notification(
+                user_id="default_user",  # TODO: Get from auth
+                notification_type="operation",
+                title="✅ Aplikacja zainstalowana",
+                message=f"Aplikacja {app_data.app_name} została pomyślnie zainstalowana w klastrze {cluster_name}",
+                metadata={
+                    "cluster": cluster_name,
+                    "app_name": app_data.app_name,
+                    "operation_id": log_entry["id"]
+                },
+                severity="success"
+            )
+        else:
+            activity_log.update_operation_status(
+                operation_id=log_entry["id"],
+                status="error",
+                details=f"Błąd instalacji aplikacji: {app_data.app_name}",
+                metadata={
+                    "app_name": app_data.app_name,
+                    "error": result.get("error", "Unknown error"),
+                    "output": combined_output or result.get("error", "")
+                }
+            )
+            
+            # Send error notification
+            await notification_service.send_notification(
+                user_id="default_user",  # TODO: Get from auth
+                notification_type="operation",
+                title="❌ Błąd instalacji",
+                message=f"Nie udało się zainstalować aplikacji {app_data.app_name} w klastrze {cluster_name}",
+                metadata={
+                    "cluster": cluster_name,
+                    "app_name": app_data.app_name,
+                    "error": result.get("error", "Unknown error"),
+                    "operation_id": log_entry["id"]
+                },
+                severity="error"
+            )
+        
         return result
     except Exception as e:
+        # Update log with exception
+        activity_log.update_operation_status(
+            operation_id=log_entry["id"],
+            status="error",
+            details=f"Wyjątek podczas instalacji: {app_data.app_name}",
+            metadata={
+                "app_name": app_data.app_name,
+                "error": str(e),
+                "output": str(e)
+            }
+        )
+        
         return {
             "success": False,
             "error": f"Installation error: {str(e)}"
@@ -1410,8 +3043,66 @@ async def uninstall_app(cluster_name: str, app_name: str):
     """Uninstall application from cluster"""
     try:
         result = app_service.uninstall_app(cluster_name, app_name)
+        
+        # Log operation
+        if result.get("success"):
+            activity_log.log_operation(
+                operation_type="app_uninstall",
+                cluster_name=cluster_name,
+                details=f"Odinstalowano aplikację: {app_name}",
+                status="success",
+                metadata={"app_name": app_name}
+            )
+            
+            # Send success notification
+            await notification_service.send_notification(
+                user_id="default_user",  # TODO: Get from auth
+                notification_type="app_uninstalled",
+                severity="info",
+                title="🗑️ Aplikacja odinstalowana",
+                message=f"Aplikacja '{app_name}' została odinstalowana z klastra '{cluster_name}'",
+                metadata={"cluster": cluster_name, "app_name": app_name}
+            )
+        else:
+            activity_log.log_operation(
+                operation_type="app_uninstall",
+                cluster_name=cluster_name,
+                details=f"Błąd odinstalowania aplikacji: {app_name}",
+                status="error",
+                metadata={"app_name": app_name, "error": result.get("error", "Unknown error")}
+            )
+            
+            # Send error notification
+            await notification_service.send_notification(
+                user_id="default_user",  # TODO: Get from auth
+                notification_type="app_uninstall_error",
+                severity="error",
+                title="❌ Błąd odinstalowania aplikacji",
+                message=f"Nie udało się odinstalować '{app_name}' z klastra '{cluster_name}': {result.get('error', 'Unknown error')}",
+                metadata={"cluster": cluster_name, "app_name": app_name}
+            )
+        
         return result
     except Exception as e:
+        # Log exception
+        activity_log.log_operation(
+            operation_type="app_uninstall",
+            cluster_name=cluster_name,
+            details=f"Wyjątek podczas odinstalowania: {app_name}",
+            status="error",
+            metadata={"app_name": app_name, "error": str(e)}
+        )
+        
+        # Send error notification
+        await notification_service.send_notification(
+            user_id="default_user",  # TODO: Get from auth
+            notification_type="app_uninstall_error",
+            severity="error",
+            title="❌ Błąd odinstalowania aplikacji",
+            message=f"Wystąpił błąd podczas odinstalowania '{app_name}' z klastra '{cluster_name}': {str(e)}",
+            metadata={"cluster": cluster_name, "app_name": app_name}
+        )
+        
         return {
             "success": False,
             "error": f"Uninstall error: {str(e)}"
@@ -1685,8 +3376,26 @@ async def apply_cluster_scaling(cluster_name: str, scaling_config: dict):
     Kind: Recreates cluster (data loss warning).
     k3d: Live node addition/removal without recreate!
     """
+    
+    # Detect provider first
+    provider = detect_cluster_provider(cluster_name)
+    worker_nodes = scaling_config.get('workerNodes', 2)
+    
+    # Log operation start (in-progress)
+    log_entry = activity_log.log_operation(
+        operation_type="cluster_scale",
+        cluster_name=cluster_name,
+        details=f"Skalowanie klastra do {worker_nodes} węzłów worker...",
+        status="in-progress",
+        metadata={
+            "provider": provider,
+            "worker_nodes": worker_nodes,
+            "cpu_per_node": scaling_config.get('cpuPerNode', 2),
+            "ram_per_node": scaling_config.get('ramPerNode', 4096)
+        }
+    )
+    
     try:
-        worker_nodes = scaling_config.get('workerNodes', 2)
         cpu_per_node = scaling_config.get('cpuPerNode', 2)
         ram_per_node = scaling_config.get('ramPerNode', 4096)
         
@@ -1712,10 +3421,26 @@ async def apply_cluster_scaling(cluster_name: str, scaling_config: dict):
             # Add k3d operations to our log
             operations.extend(scale_result.get("operations", []))
             
-            # Get updated cluster info
-            cluster_info = k3d_service.get_cluster_info(cluster_name)
-            nodes = cluster_info.get("nodes", [])
-            agent_count = sum(1 for n in nodes if n.get("role") == "agent")
+            # Get agent count from scale_result (bardziej niezawodne niż ponowne pobieranie)
+            agent_count = scale_result.get("current_agents", worker_nodes)
+            
+            # Update log - success
+            activity_log.update_operation_status(
+                operation_id=log_entry["id"],
+                status="success",
+                details=f"Przeskalowano klaster k3d do {agent_count} węzłów agent (LIVE)",
+                metadata={"provider": "k3d", "final_agent_count": agent_count}
+            )
+            
+            # Send notification
+            await notification_service.send_notification(
+                user_id="default_user",
+                notification_type="cluster_scaled",
+                title="Klaster przeskalowany",
+                message=f"Klaster '{cluster_name}' został przeskalowany do {agent_count} węzłów worker (k3d LIVE scaling)",
+                severity="success",
+                metadata={"cluster": cluster_name, "provider": "k3d", "nodes": agent_count}
+            )
             
             return {
                 "success": True,
@@ -1793,6 +3518,23 @@ async def apply_cluster_scaling(cluster_name: str, scaling_config: dict):
             if os.path.exists(config_path):
                 os.unlink(config_path)
         
+        # Update log - success
+        activity_log.update_operation_status(
+            operation_id=log_entry["id"],
+            status="success",
+            details=f"Przeskalowano klaster Kind do {worker_nodes} węzłów worker (RECREATE)",
+            metadata={"provider": "kind", "worker_nodes": worker_nodes, "total_nodes": node_count}
+        )
+        
+        # Send notification
+        await notification_service.send_notification(
+            title="Klaster przeskalowany",
+            message=f"Klaster '{cluster_name}' został przeskalowany do {worker_nodes} węzłów worker (Kind - klaster odtworzony)",
+            notification_type="cluster_scaled",
+            severity="warning",
+            metadata={"cluster": cluster_name, "provider": "kind", "nodes": worker_nodes}
+        )
+        
         return {
             "success": True,
             "message": f"Cluster successfully scaled to {worker_nodes} worker nodes",
@@ -1803,14 +3545,405 @@ async def apply_cluster_scaling(cluster_name: str, scaling_config: dict):
         
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr if e.stderr else str(e)
+        
+        # Update log - error
+        activity_log.update_operation_status(
+            operation_id=log_entry["id"],
+            status="error",
+            details=f"Błąd skalowania klastra: {error_msg}",
+            metadata={"error": error_msg}
+        )
+        
+        # Send error notification
+        await notification_service.send_notification(
+            title="Błąd skalowania klastra",
+            message=f"Nie udało się przeskalować klastra '{cluster_name}': {error_msg}",
+            notification_type="cluster_scale_error",
+            severity="error",
+            metadata={"cluster": cluster_name, "error": error_msg}
+        )
+        
         return {
             "success": False,
             "error": f"Failed to scale cluster: {error_msg}",
             "operations": operations
         }
     except Exception as e:
+        # Update log - exception
+        activity_log.update_operation_status(
+            operation_id=log_entry["id"],
+            status="error",
+            details=f"Nieoczekiwany błąd skalowania: {str(e)}",
+            metadata={"error": str(e)}
+        )
+        
         return {
             "success": False,
             "error": f"Unexpected error: {str(e)}",
             "operations": operations
         }
+
+
+# ========================================
+# AWS EKS ENDPOINTS
+# ========================================
+
+@app.post("/api/v1/eks-cluster/create")
+async def create_eks_cluster(request: Request):
+    """
+    Create AWS EKS cluster using Terraform with advanced configuration
+    """
+    print("=" * 80)
+    print("🚀 EKS CLUSTER CREATE REQUEST RECEIVED")
+    print("=" * 80)
+    
+    try:
+        data = await request.json()
+        print(f"📦 Request data: {data}")
+        
+        cluster_name = data.get("cluster_name")
+        region = data.get("region", "eu-central-1")
+        aws_access_key = data.get("aws_access_key")
+        aws_secret_key = data.get("aws_secret_key")
+        
+        # Node configuration
+        node_count = data.get("node_count", 2)
+        instance_type = data.get("instance_type", "t3.medium")
+        disk_size = data.get("disk_size", 20)
+        
+        # Auto-scaling configuration
+        min_nodes = data.get("min_nodes", 1)
+        max_nodes = data.get("max_nodes", 3)
+        
+        # Networking
+        vpc_cidr = data.get("vpc_cidr", "10.0.0.0/16")
+        
+        # Kubernetes version
+        k8s_version = data.get("k8s_version", "1.30")
+        
+        # Monitoring installation
+        install_monitoring = data.get("install_monitoring", False)
+        
+        print(f"📝 Cluster config:")
+        print(f"   Name: {cluster_name}")
+        print(f"   Region: {region}")
+        print(f"   Instance: {instance_type}")
+        print(f"   Nodes: {node_count} (min={min_nodes}, max={max_nodes})")
+        print(f"   Disk: {disk_size}GB")
+        print(f"   K8s version: {k8s_version}")
+        print(f"   VPC CIDR: {vpc_cidr}")
+        print(f"   Install monitoring: {install_monitoring}")
+        
+        if not all([cluster_name, aws_access_key, aws_secret_key]):
+            print("❌ Missing required fields!")
+            raise HTTPException(status_code=400, detail="Missing required fields")
+        
+        print("🔨 Starting Terraform cluster creation...")
+        result = eks_service.create_cluster(
+            cluster_name=cluster_name,
+            region=region,
+            aws_access_key=aws_access_key,
+            aws_secret_key=aws_secret_key,
+            node_count=node_count,
+            instance_type=instance_type,
+            vpc_cidr=vpc_cidr,
+            disk_size=disk_size,
+            min_nodes=min_nodes,
+            max_nodes=max_nodes,
+            k8s_version=k8s_version
+        )
+        print(f"✅ Terraform result: {result}")
+        
+        if not result.get("success"):
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to create EKS cluster"))
+        
+        # Jeśli monitoring ma być zainstalowany, zainstaluj CloudWatch po utworzeniu klastra
+        if install_monitoring:
+            print(f"📊 Installing CloudWatch monitoring for {cluster_name}...")
+            try:
+                # Pobierz kontekst EKS dla klastra
+                context_name = f"arn:aws:eks:{region}:{result.get('account_id', '')}:cluster/{cluster_name}"
+                # Jeśli account_id nie jest w result, spróbuj pobrać z kubectl contexts
+                if not result.get('account_id'):
+                    try:
+                        contexts_result = subprocess.run(
+                            ["kubectl", "config", "get-contexts", "-o", "name"],
+                            capture_output=True,
+                            text=True,
+                            timeout=10
+                        )
+                        if contexts_result.returncode == 0:
+                            contexts = contexts_result.stdout.strip().split('\n')
+                            for ctx in contexts:
+                                if cluster_name in ctx and 'arn:aws:eks' in ctx:
+                                    context_name = ctx
+                                    break
+                    except Exception as ctx_err:
+                        print(f"⚠️ Warning: Failed to get context: {ctx_err}")
+                
+                print(f"   Using context: {context_name}")
+                monitoring_result = helm_service.install_cloudwatch_insights(cluster_name, context_name)
+                if monitoring_result.get("success"):
+                    print(f"✅ CloudWatch monitoring installed successfully")
+                    result["monitoring_installed"] = True
+                    result["monitoring_info"] = monitoring_result.get("access_info", {})
+                else:
+                    print(f"⚠️ Warning: Failed to install monitoring: {monitoring_result.get('error')}")
+                    result["monitoring_installed"] = False
+                    result["monitoring_error"] = monitoring_result.get("error")
+            except Exception as e:
+                print(f"⚠️ Warning: Exception during monitoring installation: {str(e)}")
+                result["monitoring_installed"] = False
+                result["monitoring_error"] = str(e)
+        
+        print("=" * 80)
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating EKS cluster: {str(e)}")
+
+
+@app.post("/api/v1/eks-cluster/list")
+async def list_eks_clusters(request: Request):
+    """
+    List EKS clusters in AWS region
+    """
+    try:
+        data = await request.json()
+        
+        region = data.get("region")
+        aws_access_key = data.get("aws_access_key")
+        aws_secret_key = data.get("aws_secret_key")
+        
+        if not all([region, aws_access_key, aws_secret_key]):
+            raise HTTPException(status_code=400, detail="Missing required fields")
+        
+        result = eks_service.list_clusters(
+            region=region,
+            aws_access_key=aws_access_key,
+            aws_secret_key=aws_secret_key
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error listing EKS clusters: {str(e)}")
+
+
+@app.delete("/api/v1/eks-cluster/{cluster_name}")
+async def delete_eks_cluster(cluster_name: str, request: Request):
+    """
+    Delete EKS cluster
+    """
+    try:
+        data = await request.json()
+        
+        region = data.get("region")
+        aws_access_key = data.get("aws_access_key")
+        aws_secret_key = data.get("aws_secret_key")
+        
+        if not all([region, aws_access_key, aws_secret_key]):
+            raise HTTPException(status_code=400, detail="Missing required fields")
+        
+        result = eks_service.delete_cluster(
+            cluster_name=cluster_name,
+            region=region,
+            aws_access_key=aws_access_key,
+            aws_secret_key=aws_secret_key
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting EKS cluster: {str(e)}")
+
+
+@app.get("/api/v1/eks-cluster/{cluster_name}/status")
+async def get_eks_cluster_status(cluster_name: str, region: str, aws_access_key: str, aws_secret_key: str):
+    """
+    Get EKS cluster status
+    """
+    try:
+        result = eks_service.get_cluster_status(
+            cluster_name=cluster_name,
+            region=region,
+            aws_access_key=aws_access_key,
+            aws_secret_key=aws_secret_key
+        )
+        
+        return result
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting EKS cluster status: {str(e)}")
+
+
+@app.post("/api/v1/eks-cluster/{cluster_name}/details")
+async def get_eks_cluster_details(cluster_name: str, request: Request):
+    """
+    Get detailed EKS cluster information (nodes, deployments, etc.)
+    """
+    try:
+        data = await request.json()
+        
+        region = data.get("region")
+        aws_access_key = data.get("aws_access_key")
+        aws_secret_key = data.get("aws_secret_key")
+        
+        if not all([region, aws_access_key, aws_secret_key]):
+            raise HTTPException(status_code=400, detail="Missing required AWS credentials")
+        
+        result = eks_service.get_cluster_details(
+            cluster_name=cluster_name,
+            region=region,
+            aws_access_key=aws_access_key,
+            aws_secret_key=aws_secret_key
+        )
+        
+        if not result.get("success"):
+            raise HTTPException(status_code=404, detail=result.get("error", "Cluster not found"))
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting EKS cluster details: {str(e)}")
+
+@app.post("/api/v1/eks-cluster/{cluster_name}/install-metrics")
+async def install_metrics_server_on_eks(cluster_name: str):
+    """
+    Zainstaluj Metrics Server na istniejącym klastrze EKS
+    """
+    try:
+        # Pobierz zapisane credentials
+        credentials = eks_service.get_cluster_credentials(cluster_name)
+        if not credentials:
+            raise HTTPException(status_code=404, detail=f"Credentials not found for cluster {cluster_name}")
+        
+        # Przygotuj środowisko z credentials
+        env = os.environ.copy()
+        env.update({
+            "AWS_ACCESS_KEY_ID": credentials["aws_access_key"],
+            "AWS_SECRET_ACCESS_KEY": credentials["aws_secret_key"],
+            "AWS_DEFAULT_REGION": credentials["region"]
+        })
+        
+        region = credentials["region"]
+        
+        print(f"📊 Instalowanie Metrics Server na klastrze {cluster_name}...")
+        
+        # Użyj metody z eks_service która ma poprawną logikę
+        success = eks_service._install_metrics_server(cluster_name, region, env, context=None)
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"Metrics Server został zainstalowany na klastrze {cluster_name}. Czekaj ~2 minuty aż będzie gotowy."
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Nie udało się zainstalować Metrics Server - sprawdź logi backendu"
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error installing Metrics Server: {str(e)}")
+
+
+@app.post("/api/v1/eks-cluster/{cluster_name}/scale")
+async def scale_eks_cluster(cluster_name: str, request: dict):
+    """
+    Skaluj klaster EKS przez zmianę liczby worker nodes i/lub typu instancji
+    """
+    try:
+        region = request.get("region")
+        aws_access_key = request.get("aws_access_key")
+        aws_secret_key = request.get("aws_secret_key")
+        desired_size = request.get("desired_size")
+        min_size = request.get("min_size")
+        max_size = request.get("max_size")
+        instance_types = request.get("instance_types")
+        
+        if not all([region, aws_access_key, aws_secret_key]) or desired_size is None:
+            raise HTTPException(status_code=400, detail="Missing required parameters")
+        
+        result = eks_service.scale_cluster(
+            cluster_name=cluster_name,
+            region=region,
+            aws_access_key=aws_access_key,
+            aws_secret_key=aws_secret_key,
+            desired_size=desired_size,
+            min_size=min_size,
+            max_size=max_size,
+            instance_types=instance_types
+        )
+        
+        if not result.get("success"):
+            error_msg = result.get("error", "Failed to scale EKS cluster")
+            print(f"❌ EKS Scaling failed: {error_msg}")
+            raise HTTPException(
+                status_code=500,
+                detail=error_msg
+            )
+        
+        print(f"✅ EKS Scaling successful: {result}")
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Exception in scale_eks_cluster: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error scaling EKS cluster: {str(e)}")
+
+
+@app.post("/api/v1/eks-cluster/{cluster_name}/backup")
+async def backup_eks_cluster(cluster_name: str, request: Request):
+    """
+    Utwórz backup klastra EKS (eksport wszystkich zasobów Kubernetes do YAML)
+    """
+    try:
+        data = await request.json()
+        
+        region = data.get("region")
+        aws_access_key = data.get("aws_access_key")
+        aws_secret_key = data.get("aws_secret_key")
+        backup_name = data.get("backup_name")  # Opcjonalne
+        
+        if not all([region, aws_access_key, aws_secret_key]):
+            raise HTTPException(status_code=400, detail="Missing required AWS credentials")
+        
+        print(f"📦 Creating EKS cluster backup: {cluster_name}")
+        
+        result = eks_service.backup_cluster(
+            cluster_name=cluster_name,
+            region=region,
+            aws_access_key=aws_access_key,
+            aws_secret_key=aws_secret_key,
+            backup_name=backup_name
+        )
+        
+        if not result.get("success"):
+            error_msg = result.get("error", "Failed to create EKS backup")
+            print(f"❌ EKS Backup failed: {error_msg}")
+            raise HTTPException(status_code=500, detail=error_msg)
+        
+        print(f"✅ EKS Backup successful: {result.get('backup_name')}")
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Exception in backup_eks_cluster: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error creating EKS backup: {str(e)}")

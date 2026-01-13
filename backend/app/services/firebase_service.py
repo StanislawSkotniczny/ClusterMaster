@@ -4,22 +4,38 @@ from fastapi import HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.config import settings
 import os
+import json
 from typing import Dict, Any, Optional
 
 # Initialize Firebase Admin SDK
 if not firebase_admin._apps:
     try:
-        if os.path.exists(settings.firebase_credentials_path):
+        # Priority 1: JSON string from environment variable
+        if settings.firebase_credentials_json:
+            cred_dict = json.loads(settings.firebase_credentials_json)
+            cred = credentials.Certificate(cred_dict)
+        # Priority 2: JSON file path
+        elif os.path.exists(settings.firebase_credentials_path):
             cred = credentials.Certificate(settings.firebase_credentials_path)
+        # Priority 3: Default credentials (for production with service account)
         else:
-            # Use default credentials (for production with service account)
             cred = credentials.ApplicationDefault()
         
         firebase_admin.initialize_app(cred)
+        print("✅ Firebase initialized successfully")
     except Exception as e:
-        print(f"Firebase initialization error: {e}")
+        print(f"⚠️ Firebase initialization error: {e}")
+        # Don't initialize Firebase services if init failed
+        firebase_admin._apps.clear()
 
-db = firestore.client()
+# Only initialize Firebase services if app was initialized successfully
+db = None
+if firebase_admin._apps:
+    try:
+        db = firestore.client()
+    except Exception as e:
+        print(f"⚠️ Firestore client initialization error: {e}")
+
 security = HTTPBearer()
 
 async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:

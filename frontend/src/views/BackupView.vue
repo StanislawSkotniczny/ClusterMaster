@@ -81,9 +81,12 @@
               v-for="cluster in clusters" 
               :key="cluster.name" 
               :value="cluster.name"
-              :disabled="cluster.status !== 'ready'"
             >
-              {{ cluster.name }} ({{ cluster.status }})
+              {{ cluster.name }}
+              <template v-if="cluster.provider === 'eks'">EKS</template>
+              <template v-else-if="cluster.provider === 'k3d'">k3d</template>
+              <template v-else-if="cluster.provider === 'kind'">kind</template>
+              ({{ ['running', 'Running', 'ACTIVE', 'ready'].includes(cluster.status) ? 'ready' : cluster.status }})
             </option>
           </select>
         </div>
@@ -344,11 +347,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { ApiService, type ClusterInfo, type BackupInfo, type BackupDetails } from '@/services/api'
+import { ref, onMounted, computed } from 'vue'
+import { useClustersStore } from '@/stores/clusters'
+import { useAwsStore } from '@/stores/aws'
+import { ApiService, type BackupInfo, type BackupDetails } from '@/services/api'
+
+const clustersStore = useClustersStore()
+const awsStore = useAwsStore()
 
 // Reactive data
-const clusters = ref<ClusterInfo[]>([])
+const clusters = computed(() => clustersStore.clusters)
 const backups = ref<BackupInfo[]>([])
 const backupInfo = ref<Record<string, unknown> | null>(null)
 const selectedCluster = ref('')
@@ -375,21 +383,14 @@ const changingDirectory = ref(false)
 
 // Load data on mount
 onMounted(async () => {
-  await loadClusters()
+  if (clustersStore.clusters.length === 0) {
+    await clustersStore.fetchClusters()
+  }
   await loadBackups()
   await loadBackupInfo()
 })
 
 // Methods
-const loadClusters = async () => {
-  try {
-    const response = await ApiService.listClustersDetailed()
-    clusters.value = response.clusters || []
-  } catch (error) {
-    console.error('Error loading clusters:', error)
-  }
-}
-
 const loadBackups = async () => {
   loadingBackups.value = true
   try {
@@ -468,16 +469,52 @@ const createBackup = async () => {
   backupMessage.value = ''
   
   try {
-    const response = await ApiService.createBackup(selectedCluster.value, backupName.value || undefined)
+    // Sprawdź czy to klaster EKS
+    const cluster = clusters.value.find(c => c.name === selectedCluster.value)
     
-    if (response.success) {
-      backupMessage.value = response.message
-      backupMessageType.value = 'success'
-      backupName.value = ''
-      await loadBackups()
+    if (cluster?.provider === 'eks') {
+      // Backup dla EKS - użyj AWS credentials
+      if (!awsStore.hasCredentials) {
+        backupMessage.value = 'Brak AWS credentials. Ustaw je w HomeView.'
+        backupMessageType.value = 'error'
+        return
+      }
+      
+      const response = await fetch(`http://localhost:8000/api/v1/eks-cluster/${selectedCluster.value}/backup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          region: awsStore.credentials?.region,
+          aws_access_key: awsStore.credentials?.accessKey,
+          aws_secret_key: awsStore.credentials?.secretKey,
+          backup_name: backupName.value || undefined
+        })
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        backupMessage.value = data.message
+        backupMessageType.value = 'success'
+        backupName.value = ''
+        await loadBackups()
+      } else {
+        backupMessage.value = data.error || data.message
+        backupMessageType.value = 'error'
+      }
     } else {
-      backupMessage.value = response.error || response.message
-      backupMessageType.value = 'error'
+      // Backup dla lokalnego klastra (kind/k3d)
+      const response = await ApiService.createBackup(selectedCluster.value, backupName.value || undefined)
+      
+      if (response.success) {
+        backupMessage.value = response.message
+        backupMessageType.value = 'success'
+        backupName.value = ''
+        await loadBackups()
+      } else {
+        backupMessage.value = response.error || response.message
+        backupMessageType.value = 'error'
+      }
     }
   } catch (error) {
     backupMessage.value = `Błąd: ${error}`
