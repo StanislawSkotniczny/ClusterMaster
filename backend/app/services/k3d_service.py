@@ -1,6 +1,7 @@
 import subprocess
 import json
 from typing import Dict, List, Optional
+from app.services.port_manager import port_manager
 
 
 class K3dService:
@@ -26,11 +27,19 @@ class K3dService:
     ) -> Dict:
 
         try:
+            # Pobierz dynamiczny port API dla tego klastra
+            if ports and 'api' in ports:
+                api_port = ports['api']
+            else:
+                # Przydziel nowy port API
+                cluster_ports = port_manager.assign_ports_for_cluster(cluster_name)
+                api_port = cluster_ports.get('api', 6550)
+            
             cmd = [
                 'k3d', 'cluster', 'create', cluster_name,
                 '--agents', str(agents),
                 '--servers', str(servers),
-                '--api-port', '127.0.0.1:6550',  # WAŻNE: 127.0.0.1 zamiast 0.0.0.0 dla Windows
+                '--api-port', f'127.0.0.1:{api_port}',  # Dynamiczny port API dla każdego klastra
                 '--wait'
             ]
             
@@ -240,40 +249,35 @@ class K3dService:
     def scale_cluster(self, cluster_name: str, target_agents: int) -> Dict:
 
         try:
-            # Pobierz obecną liczbę agentów
             nodes = self.list_nodes(cluster_name)
             current_agents = sum(1 for n in nodes if 'agent' in n)
             
             operations = []
             
             if target_agents > current_agents:
-                # Dodaj agentów
                 agents_to_add = target_agents - current_agents
                 operations.append(f'Adding {agents_to_add} agent(s)...')
                 
                 for i in range(agents_to_add):
                     result = self.add_agent(cluster_name)
                     if result['success']:
-                        operations.append(f"✅ Added {result['node_name']}")
+                        operations.append(f"Added {result['node_name']}")
                     else:
-                        operations.append(f"❌ Failed to add agent: {result.get('error')}")
+                        operations.append(f"Failed to add agent: {result.get('error')}")
                         
             elif target_agents < current_agents:
-                # Usuń agentów
                 agents_to_remove = current_agents - target_agents
                 operations.append(f'Removing {agents_to_remove} agent(s)...')
                 
-                # Usuń ostatnich N agentów
                 agent_nodes = [n for n in nodes if 'agent' in n]
                 for i in range(agents_to_remove):
                     node_to_remove = agent_nodes[-(i+1)]
-                    # Extract simple name from full k3d name
                     simple_name = node_to_remove.replace(f'k3d-{cluster_name}-', '')
                     result = self.delete_node(cluster_name, simple_name)
                     if result['success']:
-                        operations.append(f"✅ Removed {simple_name}")
+                        operations.append(f"Removed {simple_name}")
                     else:
-                        operations.append(f"❌ Failed to remove {simple_name}")
+                        operations.append(f"Failed to remove {simple_name}")
             else:
                 operations.append('No changes needed - cluster already at target size')
             

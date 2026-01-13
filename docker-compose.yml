@@ -9,6 +9,7 @@ services:
       - "8000:8000"
     environment:
       - ENV=development
+      - FIREBASE_CREDENTIALS_JSON=${FIREBASE_CREDENTIALS_JSON}
     volumes:
       - ./backend:/app
       - /app/__pycache__

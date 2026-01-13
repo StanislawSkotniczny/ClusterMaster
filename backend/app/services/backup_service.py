@@ -22,8 +22,10 @@ class BackupService:
             if env_backup_dir:
                 self.backup_dir = Path(env_backup_dir).expanduser().resolve()
             else:
-                # Default to 'backups' directory in current working directory
-                self.backup_dir = Path.cwd() / "backups"
+                # Default to 'backups' directory relative to backend folder
+                # Find the backend directory (where this service is located)
+                backend_dir = Path(__file__).parent.parent.parent  # app/services -> app -> backend
+                self.backup_dir = backend_dir / "backups"
         
         # Create backup directory if it doesn't exist
         self.backup_dir.mkdir(parents=True, exist_ok=True)
@@ -547,17 +549,23 @@ nodes:
             try:
                 # Extract backup manifest to get metadata
                 with zipfile.ZipFile(backup_file, 'r') as zipf:
+                    # Szukaj backup_manifest.json (kind/k3d) lub backup_info.json (EKS)
+                    manifest = None
                     if 'backup_manifest.json' in zipf.namelist():
                         manifest_content = zipf.read('backup_manifest.json').decode('utf-8')
                         manifest = json.loads(manifest_content)
-                        
+                    elif 'backup_info.json' in zipf.namelist():
+                        manifest_content = zipf.read('backup_info.json').decode('utf-8')
+                        manifest = json.loads(manifest_content)
+                    
+                    if manifest:
                         backup_info = {
                             "backup_name": manifest.get("backup_name", backup_file.stem),
                             "cluster_name": manifest.get("cluster_name", "unknown"),
-                            "created_at": manifest.get("created_at", "unknown"),
+                            "created_at": manifest.get("created_at", manifest.get("backup_time", "unknown")),
                             "size_mb": round(backup_file.stat().st_size / (1024 * 1024), 2),
                             "resources_count": len(manifest.get("resources", [])),
-                            "backup_type": manifest.get("backup_type", "unknown"),
+                            "backup_type": manifest.get("backup_type", manifest.get("provider", "unknown")),
                             "file_path": str(backup_file)
                         }
                         backups.append(backup_info)
@@ -614,8 +622,16 @@ nodes:
         
         try:
             with zipfile.ZipFile(backup_file, 'r') as zipf:
-                if 'backup_manifest.json' in zipf.namelist():
-                    manifest_content = zipf.read('backup_manifest.json').decode('utf-8')
+                # Szukaj manifestu - może być pod różnymi nazwami
+                manifest_names = ['backup_manifest.json', 'backup_info.json']
+                manifest_content = None
+                
+                for manifest_name in manifest_names:
+                    if manifest_name in zipf.namelist():
+                        manifest_content = zipf.read(manifest_name).decode('utf-8')
+                        break
+                
+                if manifest_content:
                     manifest = json.loads(manifest_content)
                     
                     # Add file information
@@ -629,11 +645,34 @@ nodes:
                         "success": True,
                         "backup_details": manifest
                     }
-            
-            return {
-                "success": False,
-                "error": "Backup manifest not found in archive"
-            }
+                
+                # Jeśli nie ma manifestu, utwórz podstawowe informacje z plików w archiwum
+                files = zipf.namelist()
+                resources = []
+                for f in files:
+                    if f.endswith('.yaml') or f.endswith('.yml'):
+                        parts = f.replace('.yaml', '').replace('.yml', '').split('_')
+                        if len(parts) >= 2:
+                            resources.append({
+                                "type": parts[-1],
+                                "namespace": parts[0] if parts[0] != 'cluster' else None,
+                                "scope": "namespaced" if parts[0] != 'cluster' else "cluster"
+                            })
+                
+                return {
+                    "success": True,
+                    "backup_details": {
+                        "backup_name": backup_name,
+                        "cluster_name": backup_name.split('_')[0] if '_' in backup_name else "unknown",
+                        "created_at": str(backup_file.stat().st_mtime),
+                        "resources": resources,
+                        "file_info": {
+                            "size_mb": round(backup_file.stat().st_size / (1024 * 1024), 2),
+                            "file_count": len(files),
+                            "files": files
+                        }
+                    }
+                }
             
         except Exception as e:
             return {

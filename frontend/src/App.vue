@@ -2,10 +2,13 @@
 import { RouterView, useRouter } from 'vue-router'
 import { useDarkMode } from './composables/useDarkMode'
 import { useAuthStore } from './stores/auth'
-import { onMounted } from 'vue'
+import { useClustersStore } from './stores/clusters'
+import NotificationBell from './components/NotificationBell.vue'
+import { onMounted, onUnmounted, watch } from 'vue'
 
 const { initTheme, watchSystemTheme, isDark, toggleDarkMode } = useDarkMode()
 const authStore = useAuthStore()
+const clustersStore = useClustersStore()
 const router = useRouter()
 
 const logout = async () => {
@@ -16,19 +19,41 @@ const logout = async () => {
 onMounted(() => {
   initTheme()
   watchSystemTheme()
+  
+  // Initialize clusters store when user is authenticated
+  if (authStore.user) {
+    clustersStore.fetchClusters()
+    clustersStore.startAutoRefresh(10000) // Refresh every 10 seconds
+  }
+})
+
+onUnmounted(() => {
+  // Clean up auto-refresh when app unmounts
+  clustersStore.stopAutoRefresh()
+})
+
+// Watch for auth changes - start/stop auto-refresh
+watch(() => authStore.user, (newUser) => {
+  if (newUser) {
+    clustersStore.fetchClusters()
+    clustersStore.startAutoRefresh(10000)
+  } else {
+    clustersStore.stopAutoRefresh()
+    clustersStore.$reset()
+  }
 })
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
+  <div class="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200 flex flex-col">
     <!-- Nagłówek - persistentny dla wszystkich widoków -->
     <header v-if="authStore.user" class="bg-white dark:bg-gray-800 shadow-sm sticky top-0 z-10 transition-colors duration-200">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <div class="px-4 sm:px-6 lg:px-8 py-4">
         <div class="flex justify-between items-center">
           <h1 class="text-2xl font-bold text-gray-900 dark:text-white">ClusterMaster</h1>
           
           <!-- Nawigacja -->
-          <nav class="hidden md:flex space-x-2">
+          <nav class="hidden md:flex space-x-2 flex-1 mx-8">
             <router-link 
               to="/" 
               class="flex items-center space-x-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-all"
@@ -83,6 +108,21 @@ onMounted(() => {
           </nav>
           
           <div class="flex items-center space-x-4">
+            <!-- Notification Bell -->
+            <NotificationBell />
+            
+            <!-- Documentation Link -->
+            <a 
+              href="/dokumentacja.html" 
+              target="_blank"
+              class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              title="Dokumentacja techniczna"
+            >
+              <svg class="w-5 h-5 text-gray-600 dark:text-gray-300" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z"></path>
+              </svg>
+            </a>
+            
             <!-- Dark Mode Toggle -->
             <button 
               @click="toggleDarkMode" 
@@ -107,11 +147,13 @@ onMounted(() => {
     </header>
 
     <!-- Główna zawartość - zmienia się między widokami -->
-    <RouterView />
+    <main class="flex-grow">
+      <RouterView />
+    </main>
 
     <!-- Footer - persistentny dla wszystkich widoków -->
-    <footer v-if="authStore.user" class="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 mt-12 transition-all">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <footer v-if="authStore.user" class="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 mt-auto transition-all">
+      <div class="px-4 sm:px-6 lg:px-8 py-6">
         <p class="text-center text-sm text-gray-600 dark:text-gray-400">
           © 2025 ClusterMaster. Wszystkie prawa zastrzeżone.
         </p>

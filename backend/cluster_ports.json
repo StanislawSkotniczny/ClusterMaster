@@ -1,10 +1,16 @@
 {
-  "teststas": {
+  "klusterk3dtest": {
     "prometheus": 30090,
-    "grafana": 30030
+    "grafana": 30030,
+    "api": 6550
   },
-  "k3dtest": {
+  "nowyklasterek33": {
     "prometheus": 30100,
-    "grafana": 30040
+    "grafana": 30040,
+    "api": 6551
+  },
+  "test112233": {
+    "prometheus": 30140,
+    "grafana": 30080
   }
 }

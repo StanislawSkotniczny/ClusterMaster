@@ -10,6 +10,7 @@ import BackupView from '../views/BackupView.vue'
 import ClusterDetailsView from '../views/ClusterDetailsView.vue'
 import AppsView from '../views/AppsView.vue'
 import ScaleView from '../views/ScaleView.vue'
+import NotificationsView from '../views/NotificationsView.vue'
 
 const routes = [
   {
@@ -38,6 +39,11 @@ const routes = [
   {
     path: '/backup',
     component: BackupView,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/notifications',
+    component: NotificationsView,
     meta: { requiresAuth: true }
   },
   {

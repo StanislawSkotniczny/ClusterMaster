@@ -4,6 +4,7 @@ from pydantic import BaseSettings
 class Settings(BaseSettings):
     # Firebase
     firebase_credentials_path: str = os.getenv("FIREBASE_CREDENTIALS_PATH", "firebase-credentials.json")
+    firebase_credentials_json: str = os.getenv("FIREBASE_CREDENTIALS_JSON", "")
     
     # Terraform
     terraform_bin_path: str = os.getenv("TERRAFORM_BIN_PATH", "terraform")

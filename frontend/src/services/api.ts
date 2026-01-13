@@ -21,6 +21,9 @@ export interface ClusterInfo {
     provider?: string  // 'kind' or 'k3d'
     node_count?: number
     context?: string
+    kubernetes_version?: string  // Wersja Kubernetes
+    created_at?: string  // Data utworzenia
+    api_endpoint?: string  // Endpoint API
     assigned_ports?: {
         prometheus?: number
         grafana?: number
@@ -83,6 +86,16 @@ export interface BackupDetails {
     }
 }
 
+export interface ActivityLog {
+    id: string
+    timestamp: string
+    operation_type: string
+    cluster_name: string
+    details: string
+    status: 'success' | 'error' | 'in-progress'
+    metadata?: Record<string, unknown>
+}
+
 export class ApiService {
     private static async request(endpoint: string, options: RequestInit = {}) {
         const url = `${API_BASE_URL}${endpoint}`
@@ -102,12 +115,10 @@ export class ApiService {
         return response.json()
     }
 
-    // Health check
     static async healthCheck() {
         return this.request('/health')
     }
 
-    // Klastry lokalne
     static async listClusters(): Promise<{ clusters: string[] }> {
         return this.request('/local-cluster/list')
     }
@@ -139,7 +150,6 @@ export class ApiService {
         return this.request(`/local-cluster/${clusterName}/status`)
     }
 
-    // Debug endpoints
     static async debugDocker() {
         return this.request('/debug/docker')
     }
@@ -148,7 +158,6 @@ export class ApiService {
         return this.request('/debug/kind')
     }
 
-    // Monitoring
     static async installMonitoring(clusterName: string) {
         return this.request(`/monitoring/install/${clusterName}`, {
             method: 'POST',
@@ -157,6 +166,10 @@ export class ApiService {
 
     static async getMonitoringStatus(clusterName: string) {
         return this.request(`/monitoring/status/${clusterName}`)
+    }
+
+    static async getCloudWatchMetrics(clusterName: string) {
+        return this.request(`/monitoring/cloudwatch-metrics/${clusterName}`)
     }
 
     static async uninstallMonitoring(clusterName: string) {
@@ -182,6 +195,18 @@ export class ApiService {
 
     static async installMetricsServer(clusterName: string) {
         return this.request(`/monitoring/install-metrics-server/${clusterName}`, {
+            method: 'POST',
+        })
+    }
+
+    static async startPortForward(clusterName: string) {
+        return this.request(`/monitoring/port-forward/start/${clusterName}`, {
+            method: 'POST',
+        })
+    }
+
+    static async stopPortForward(clusterName: string) {
+        return this.request(`/monitoring/port-forward/stop/${clusterName}`, {
             method: 'POST',
         })
     }
@@ -302,20 +327,74 @@ export class ApiService {
 
     static async applyClusterScaling(clusterName: string, config: {
         workerNodes: number
-        cpuPerNode: number
-        ramPerNode: number
+        cpuPerNode?: number
+        ramPerNode?: number
+        provider?: string  // 'eks' dla EKS clusters
+        region?: string    // dla EKS
+        awsAccessKey?: string
+        awsSecretKey?: string
+        minSize?: number   // dla EKS
+        maxSize?: number   // dla EKS
+        instanceTypes?: string[]  // dla EKS - typy instancji EC2
     }): Promise<{
         success: boolean
-        provider?: string  // 'kind' or 'k3d'
+        provider?: string  // 'kind', 'k3d', or 'eks'
         message?: string
         operations?: string[]
         info?: string      // Success info (e.g., k3d live scaling notice)
         warning?: string   // Warnings (e.g., Kind recreate warning)
         error?: string
     }> {
+        // Check if this is an EKS cluster
+        if (config.provider === 'eks' && config.region && config.awsAccessKey && config.awsSecretKey) {
+            // Use EKS-specific endpoint
+            const payload: {
+                region: string
+                aws_access_key: string
+                aws_secret_key: string
+                desired_size: number
+                min_size?: number
+                max_size?: number
+                instance_types?: string[]
+            } = {
+                region: config.region,
+                aws_access_key: config.awsAccessKey,
+                aws_secret_key: config.awsSecretKey,
+                desired_size: config.workerNodes,
+                min_size: config.minSize,
+                max_size: config.maxSize
+            }
+
+            // Add instance types if provided
+            if (config.instanceTypes && config.instanceTypes.length > 0) {
+                payload.instance_types = config.instanceTypes
+            }
+
+            return this.request(`/eks-cluster/${clusterName}/scale`, {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            })
+        }
+
+        // Local cluster (kind/k3d)
         return this.request(`/clusters/${clusterName}/scaling/apply`, {
             method: 'POST',
-            body: JSON.stringify(config)
+            body: JSON.stringify({
+                workerNodes: config.workerNodes,
+                cpuPerNode: config.cpuPerNode,
+                ramPerNode: config.ramPerNode
+            })
         })
     }
+
+    // Activity Log
+    static async getActivityLog(limit: number = 20): Promise<{ success: boolean; logs: ActivityLog[]; error?: string }> {
+        return this.request(`/activity-log?limit=${limit}`)
+    }
+
+    static async getClusterActivityLog(clusterName: string, limit: number = 10): Promise<{ success: boolean; logs: ActivityLog[]; error?: string }> {
+        return this.request(`/activity-log/${clusterName}?limit=${limit}`)
+    }
 }
+
+export default ApiService

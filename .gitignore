@@ -35,3 +35,52 @@ override.tf.json
 # Ignore CLI configuration files
 .terraformrc
 terraform.rc
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Backups
+backend/backups/*.zip
+
+# Node modules
+node_modules/
+
+**/.credentials.json
+backend/terraform_states/**/.credentials.json
+
+# Terraform states with sensitive data
+backend/terraform_states/*/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Firebase credentials
+firebase-credentials.json
+**/firebase-credentials.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+backend/__pycache__/simple_main.cpython-313.pyc
+backend/__pycache__/simple_main.cpython-313.pyc
+backend/app/__pycache__/__init__.cpython-313.pyc
+backend/__pycache__/simple_main.cpython-313.pyc
+backend/app/services/__pycache__/app_service.cpython-313.pyc
+backend/app/services/__pycache__/port_manager.cpython-313.pyc
+backend/app/services/__pycache__/k3d_service.cpython-313.pyc
+backend/app/services/__pycache__/helm_service.cpython-313.pyc
+backend/app/services/__pycache__/backup_service.cpython-313.pyc
+backend/app/services/__pycache__/app_service.cpython-313.pyc
+backend/activity_log.json
