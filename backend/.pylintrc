@@ -1,0 +1,26 @@
+[MASTER]
+ignore=CVS,.git,__pycache__,.venv,venv,env
+jobs=1
+
+[MESSAGES CONTROL]
+disable=
+    C0111,  # missing-docstring
+    R0903,  # too-few-public-methods
+    C0103,  # invalid-name
+    R0913,  # too-many-arguments
+    R0914,  # too-many-locals
+    R0915,  # too-many-statements
+    W0703,  # broad-except
+    C0301,  # line-too-long
+    R0801,  # duplicate-code
+
+[FORMAT]
+max-line-length=100
+max-module-lines=1000
+
+[BASIC]
+good-names=i,j,k,ex,_,id,db
+
+[DESIGN]
+max-args=7
+max-locals=20

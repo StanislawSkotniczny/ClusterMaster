@@ -17,6 +17,7 @@ jobs:
 
       - name: Auto label based on files
         uses: actions/labeler@v5
+        continue-on-error: true
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           configuration-path: .github/labeler.yml
