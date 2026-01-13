@@ -1,23 +1,13 @@
 {
-  "k3dtest": {
-    "prometheus": 30100,
-    "grafana": 30040
-  },
-  "nowyklasterek": {
-    "prometheus": 30120,
-    "grafana": 30060
-  },
-  "testpop": {
-    "prometheus": 30130,
-    "grafana": 30070
-  },
   "klusterk3dtest": {
     "prometheus": 30090,
-    "grafana": 30030
+    "grafana": 30030,
+    "api": 6550
   },
-  "testkindaaa": {
-    "prometheus": 30110,
-    "grafana": 30050
+  "nowyklasterek33": {
+    "prometheus": 30100,
+    "grafana": 30040,
+    "api": 6551
   },
   "test112233": {
     "prometheus": 30140,

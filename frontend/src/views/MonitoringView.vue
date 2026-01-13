@@ -246,7 +246,7 @@
                   </div>
                   
                   <!-- CloudWatch dla EKS -->
-                  <div v-if="cluster.provider === 'eks' && cluster.monitoring?.cloudwatch_url" class="space-y-2 text-sm">
+                  <div v-if="cluster.provider === 'eks' && (cluster.monitoring as any)?.cloudwatch_url" class="space-y-2 text-sm">
                     <div class="bg-gradient-to-r from-orange-50 to-yellow-50 dark:from-orange-900/20 dark:to-yellow-900/20 rounded-lg p-3 border border-orange-200 dark:border-orange-800">
                       <div class="flex items-center mb-2">
                         <svg class="w-4 h-4 mr-1 text-orange-600 dark:text-orange-400" fill="currentColor" viewBox="0 0 20 20">
@@ -256,7 +256,7 @@
                       </div>
                       <div class="space-y-1.5">
                         <a 
-                          :href="cluster.monitoring.cloudwatch_url" 
+                          :href="(cluster.monitoring as any)?.cloudwatch_url || '#'" 
                           target="_blank"
                           class="flex items-center text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
                         >
@@ -266,8 +266,8 @@
                           Container Insights
                         </a>
                         <a 
-                          v-if="cluster.monitoring.logs_url"
-                          :href="cluster.monitoring.logs_url" 
+                          v-if="(cluster.monitoring as any)?.logs_url"
+                          :href="(cluster.monitoring as any)?.logs_url || '#'" 
                           target="_blank"
                           class="flex items-center text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
                         >
@@ -868,9 +868,9 @@ const installMonitoring = async (clusterName: string) => {
     if (clusterIndex !== -1) {
       clusters.value[clusterIndex].monitoring = { 
         installed: true,
-        cloudwatch_url: response.access_info?.cloudwatch_url,
-        logs_url: response.access_info?.logs_url
-      }
+        ...(response.access_info?.cloudwatch_url && { cloudwatch_url: response.access_info.cloudwatch_url }),
+        ...(response.access_info?.logs_url && { logs_url: response.access_info.logs_url })
+      } as any
     }
     
     // Odśwież dane portów
@@ -928,60 +928,69 @@ const openMonitoringUrls = async (clusterName: string) => {
     const cluster = clusters.value.find(c => c.name === clusterName)
     
     // Dla EKS otwórz CloudWatch
-    if (cluster?.provider === 'eks' && cluster?.monitoring?.cloudwatch_url) {
-      window.open(cluster.monitoring.cloudwatch_url, '_blank')
-      if (cluster.monitoring.logs_url) {
+    if (cluster?.provider === 'eks' && (cluster?.monitoring as any)?.cloudwatch_url) {
+      window.open((cluster.monitoring as any).cloudwatch_url, '_blank')
+      if ((cluster.monitoring as any).logs_url) {
         setTimeout(() => {
-          window.open(cluster.monitoring.logs_url, '_blank')
+          window.open((cluster.monitoring as any).logs_url, '_blank')
         }, 500)
       }
       return
     }
     
-    // Dla lokalnych klastrów - sprawdź port-forward
-    const portsData = allPortsData.value?.clusters[clusterName]
+    // Dla k3d - porty są dostępne przez NodePort + loadbalancer, nie potrzeba port-forward
+    // Dla kind - spróbuj otworzyć, jeśli nie działa, uruchom port-forward
     
-    if (portsData && !portsData.port_forward_active) {
-      // Port-forward nie jest aktywny - zapytaj czy uruchomić
-      if (confirm(`Port-forward nie jest uruchomiony!\n\nCzy chcesz automatycznie uruchomić port-forward i otworzyć monitoring?`)) {
-        // Uruchom port-forward
-        portForwardLoading[clusterName] = true
-        try {
-          const pfResponse = await ApiService.startPortForward(clusterName)
-          if (!pfResponse.success) {
-            error.value = `Błąd uruchamiania port-forward: ${pfResponse.error}`
-            return
+    // Pobierz porty dla klastra
+    const response = await ApiService.getClusterPorts(clusterName)
+    
+    if (!response.success || !response.urls) {
+      error.value = `Brak przypisanych portów dla klastra ${clusterName}`
+      return
+    }
+    
+    const urls = response.urls
+    
+    // Dla kind sprawdź czy port-forward jest potrzebny
+    if (cluster?.provider === 'kind') {
+      const portsData = allPortsData.value?.clusters?.[clusterName]
+      
+      // Sprawdź czy porty są dostępne (dla kind może być potrzebny port-forward)
+      if (portsData && !portsData.port_forward_active) {
+        // Zapytaj użytkownika czy uruchomić port-forward
+        const shouldStart = confirm(
+          `Dla klastra Kind może być potrzebny port-forward.\n\n` +
+          `Czy chcesz uruchomić port-forward i otworzyć monitoring?\n\n` +
+          `(Jeśli porty są już zmapowane w konfiguracji Kind, kliknij "Anuluj" aby otworzyć bezpośrednio)`
+        )
+        
+        if (shouldStart) {
+          portForwardLoading[clusterName] = true
+          try {
+            const pfResponse = await ApiService.startPortForward(clusterName)
+            if (!pfResponse.success) {
+              console.warn('Port-forward nie uruchomiony:', pfResponse.error)
+              // Kontynuuj mimo to - może porty są zmapowane
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000))
+          } finally {
+            portForwardLoading[clusterName] = false
           }
-          
-          // Odśwież dane portów
-          const refreshedPorts = await ApiService.getAllClusterPorts()
-          allPortsData.value = refreshedPorts
-          
-          // Poczekaj chwilę aż port-forward się ustabilizuje
-          await new Promise(resolve => setTimeout(resolve, 2000))
-          
-        } finally {
-          portForwardLoading[clusterName] = false
         }
-      } else {
-        // Użytkownik nie chce uruchamiać port-forward
-        return
       }
     }
     
-    // Teraz otwórz URL-e dla lokalnych klastrów
-    const response = await ApiService.getClusterPorts(clusterName)
-    const urls = response.urls
+    // Otwórz URL-e
+    console.log('Otwieram Prometheus:', urls.prometheus_url)
+    window.open(urls.prometheus_url, '_blank')
     
-    if (urls) {
-      // Otwórz Prometheus
-      window.open(urls.prometheus_url, '_blank')
-      // Otwórz Grafana
-      setTimeout(() => {
-        window.open(urls.grafana_url, '_blank')
-      }, 500)
-    }
+    setTimeout(() => {
+      console.log('Otwieram Grafana:', urls.grafana_url)
+      window.open(urls.grafana_url, '_blank')
+    }, 500)
+    
   } catch (e: unknown) {
+    console.error('Błąd openMonitoringUrls:', e)
     error.value = `Błąd otwierania monitoringu ${clusterName}: ${getErrorMessage(e)}`
   }
 }

@@ -423,9 +423,9 @@ async function loadClusterConfig() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            region: awsStore.credentials.region,
-            aws_access_key: awsStore.credentials.accessKey,
-            aws_secret_key: awsStore.credentials.secretKey
+            region: awsStore.credentials?.region,
+            aws_access_key: awsStore.credentials?.accessKey,
+            aws_secret_key: awsStore.credentials?.secretKey
           })
         })
         

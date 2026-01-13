@@ -1,5 +1,116 @@
 [
   {
+    "id": "cluster_scale_klusterk3dtest_1768168988",
+    "timestamp": "2026-01-11T23:03:08.755289",
+    "operation_type": "cluster_scale",
+    "cluster_name": "klusterk3dtest",
+    "details": "Przeskalowano klaster k3d do 1 w\u0119z\u0142\u00f3w agent (LIVE)",
+    "status": "success",
+    "metadata": {
+      "provider": "k3d",
+      "worker_nodes": 1,
+      "cpu_per_node": 0,
+      "ram_per_node": 0,
+      "final_agent_count": 1
+    },
+    "updated_at": "2026-01-11T23:03:13.472554"
+  },
+  {
+    "id": "cluster_scale_nowyklasterek33_1768168735",
+    "timestamp": "2026-01-11T22:58:55.533569",
+    "operation_type": "cluster_scale",
+    "cluster_name": "nowyklasterek33",
+    "details": "Przeskalowano klaster k3d do 0 w\u0119z\u0142\u00f3w agent (LIVE)",
+    "status": "success",
+    "metadata": {
+      "provider": "k3d",
+      "worker_nodes": 1,
+      "cpu_per_node": 0,
+      "ram_per_node": 0,
+      "final_agent_count": 0
+    },
+    "updated_at": "2026-01-11T22:59:00.572554"
+  },
+  {
+    "id": "cluster_scale_nowyklasterek33_1768168606",
+    "timestamp": "2026-01-11T22:56:46.966661",
+    "operation_type": "cluster_scale",
+    "cluster_name": "nowyklasterek33",
+    "details": "Nieoczekiwany b\u0142\u0105d skalowania: NotificationService.send_notification() missing 1 required positional argument: 'user_id'",
+    "status": "error",
+    "metadata": {
+      "provider": "k3d",
+      "worker_nodes": 1,
+      "cpu_per_node": 0,
+      "ram_per_node": 0,
+      "final_agent_count": 0,
+      "error": "NotificationService.send_notification() missing 1 required positional argument: 'user_id'"
+    },
+    "updated_at": "2026-01-11T22:56:52.526263"
+  },
+  {
+    "id": "app_install_nowyklasterek33_1768168473",
+    "timestamp": "2026-01-11T22:54:33.571114",
+    "operation_type": "app_install",
+    "cluster_name": "nowyklasterek33",
+    "details": "B\u0142\u0105d instalacji aplikacji: nginx",
+    "status": "error",
+    "metadata": {
+      "app_name": "nginx",
+      "chart": "bitnami/nginx",
+      "error": "Helm install failed (exit code 4294967295)",
+      "output": "Release nginx-nowyklasterek33 has been cancelled.\n\ninstall.go:225: 2026-01-11 22:54:42.0958627 +0100 CET m=+0.152003501 [debug] Original chart version: \"\"\ninstall.go:242: 2026-01-11 22:54:47.5050353 +0100 CET m=+5.561176101 [debug] CHART PATH: C:\\Users\\syass\\AppData\\Local\\Temp\\helm\\repository\\nginx-22.4.2.tgz\n\nclient.go:144: 2026-01-11 22:54:48.6451914 +0100 CET m=+6.701332201 [debug] creating 1 resource(s)\nclient.go:144: 2026-01-11 22:54:48.697682 +0100 CET m=+6.753822801 [debug] creating 6 resource(s)\nwait.go:50: 2026-01-11 22:54:48.7471551 +0100 CET m=+6.803295901 [debug] beginning wait for 6 resources with timeout of 10m0s\nready.go:274: 2026-01-11 22:54:48.7585463 +0100 CET m=+6.814687101 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:54:50.753526 +0100 CET m=+8.809666801 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:54:52.7533781 +0100 CET m=+10.809518901 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:54:54.7538691 +0100 CET m=+12.810009901 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:54:56.7548827 +0100 CET m=+14.811023501 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:54:58.7544874 +0100 CET m=+16.810628201 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:55:00.7555711 +0100 CET m=+18.811711901 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:55:02.7545273 +0100 CET m=+20.810668101 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:55:04.7531209 +0100 CET m=+22.809261701 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:55:06.7543549 +0100 CET m=+24.810495701 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:55:08.753858 +0100 CET m=+26.809998801 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:55:10.7536354 +0100 CET m=+28.809776201 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:55:12.7547908 +0100 CET m=+30.810931601 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:55:14.7532128 +0100 CET m=+32.809353601 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:55:16.7538064 +0100 CET m=+34.809947201 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:55:18.7539499 +0100 CET m=+36.810090701 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:55:20.7536183 +0100 CET m=+38.809759101 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:55:22.7534012 +0100 CET m=+40.809542001 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:55:24.7544487 +0100 CET m=+42.810589501 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\nready.go:274: 2026-01-11 22:55:26.7536855 +0100 CET m=+44.809826301 [debug] Service does not have load balancer ingress IP address: default/nginx-nowyklasterek33\n"
+    },
+    "updated_at": "2026-01-11T22:55:29.522167"
+  },
+  {
+    "id": "app_install_test112233_1768168198",
+    "timestamp": "2026-01-11T22:49:58.580132",
+    "operation_type": "app_install",
+    "cluster_name": "test112233",
+    "details": "B\u0142\u0105d instalacji aplikacji: nginx",
+    "status": "error",
+    "metadata": {
+      "app_name": "nginx",
+      "chart": "bitnami/nginx",
+      "error": "Helm install failed (exit code 4294967295)",
+      "output": "Release nginx-test112233 has been cancelled.\n\ninstall.go:225: 2026-01-11 22:50:10.3658651 +0100 CET m=+0.149715401 [debug] Original chart version: \"\"\ninstall.go:242: 2026-01-11 22:50:15.6258062 +0100 CET m=+5.409656501 [debug] CHART PATH: C:\\Users\\syass\\AppData\\Local\\Temp\\helm\\repository\\nginx-22.4.2.tgz\n\nclient.go:144: 2026-01-11 22:50:17.3801535 +0100 CET m=+7.164003801 [debug] creating 1 resource(s)\nclient.go:144: 2026-01-11 22:50:17.4366985 +0100 CET m=+7.220548801 [debug] creating 6 resource(s)\nwait.go:50: 2026-01-11 22:50:17.5403413 +0100 CET m=+7.324191601 [debug] beginning wait for 6 resources with timeout of 10m0s\nready.go:274: 2026-01-11 22:50:17.5508352 +0100 CET m=+7.334685501 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:19.5465119 +0100 CET m=+9.330362201 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:21.5466411 +0100 CET m=+11.330491401 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:23.5462686 +0100 CET m=+13.330118901 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:25.5466824 +0100 CET m=+15.330532701 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:27.5450839 +0100 CET m=+17.328934201 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:29.5451578 +0100 CET m=+19.329008101 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:31.5464233 +0100 CET m=+21.330273601 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:33.5445823 +0100 CET m=+23.328432601 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:35.5461671 +0100 CET m=+25.330017401 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:37.5444897 +0100 CET m=+27.328340001 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:39.5455148 +0100 CET m=+29.329365101 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:41.5455758 +0100 CET m=+31.329426101 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:43.546213 +0100 CET m=+33.330063301 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:45.5458493 +0100 CET m=+35.329699601 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:47.5459197 +0100 CET m=+37.329770001 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:49.5472629 +0100 CET m=+39.331113201 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:51.5465388 +0100 CET m=+41.330389101 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:53.5459916 +0100 CET m=+43.329841901 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:55.5468567 +0100 CET m=+45.330707001 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:57.5451236 +0100 CET m=+47.328973901 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:50:59.5447613 +0100 CET m=+49.328611601 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:01.5463392 +0100 CET m=+51.330189501 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:03.5452382 +0100 CET m=+53.329088501 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:05.5456175 +0100 CET m=+55.329467801 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:07.5474817 +0100 CET m=+57.331332001 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:09.5459798 +0100 CET m=+59.329830101 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:11.544853 +0100 CET m=+61.328703301 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:13.5466078 +0100 CET m=+63.330458101 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:15.5464035 +0100 CET m=+65.330253801 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:17.5455551 +0100 CET m=+67.329405401 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:19.5472275 +0100 CET m=+69.331077801 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:21.5460514 +0100 CET m=+71.329901701 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:23.5461954 +0100 CET m=+73.330045701 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:25.5458409 +0100 CET m=+75.329691201 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:27.5464958 +0100 CET m=+77.330346101 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:29.5464329 +0100 CET m=+79.330283201 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:31.5465654 +0100 CET m=+81.330415701 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:33.5459966 +0100 CET m=+83.329846901 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:35.5465467 +0100 CET m=+85.330397001 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:37.5477459 +0100 CET m=+87.331596201 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:39.5469434 +0100 CET m=+89.330793701 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:41.5471546 +0100 CET m=+91.331004901 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:43.5463444 +0100 CET m=+93.330194701 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:45.5467205 +0100 CET m=+95.330570801 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:47.5474476 +0100 CET m=+97.331297901 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:49.547059 +0100 CET m=+99.330909301 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:51.5450839 +0100 CET m=+101.328934201 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:53.5461716 +0100 CET m=+103.330021901 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:55.5454713 +0100 CET m=+105.329321601 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:57.5452005 +0100 CET m=+107.329050801 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:51:59.5455368 +0100 CET m=+109.329387101 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:52:01.545774 +0100 CET m=+111.329624301 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:52:03.5447359 +0100 CET m=+113.328586201 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:52:05.5452505 +0100 CET m=+115.329100801 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:52:07.5452637 +0100 CET m=+117.329114001 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:52:09.545398 +0100 CET m=+119.329248301 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:52:11.546136 +0100 CET m=+121.329986301 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:52:13.5470006 +0100 CET m=+123.330850901 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:52:15.5461032 +0100 CET m=+125.329953501 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:52:17.5450675 +0100 CET m=+127.328917801 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:52:19.5455407 +0100 CET m=+129.329391001 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:52:21.5460349 +0100 CET m=+131.329885201 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\nready.go:274: 2026-01-11 22:52:23.5460269 +0100 CET m=+133.329877201 [debug] Service does not have load balancer ingress IP address: default/nginx-test112233\n"
+    },
+    "updated_at": "2026-01-11T22:52:26.848711"
+  },
+  {
+    "id": "monitoring_install_klusterk3dtest_1768165878",
+    "timestamp": "2026-01-11T22:11:18.494455",
+    "operation_type": "monitoring_install",
+    "cluster_name": "klusterk3dtest",
+    "details": "Zainstalowano Prometheus + Grafana",
+    "status": "success",
+    "metadata": {
+      "components": [
+        "prometheus",
+        "grafana"
+      ],
+      "output": "\nStack monitoringu zainstalowany pomy\u015blnie na K3D",
+      "prometheus_port": null,
+      "grafana_port": null
+    },
+    "updated_at": "2026-01-11T22:12:58.381783"
+  },
+  {
+    "id": "cluster_create_nowyklasterek33_1768165081",
+    "timestamp": "2026-01-11T21:58:01.748809",
+    "operation_type": "cluster_create",
+    "cluster_name": "nowyklasterek33",
+    "details": "Utworzono klaster k3d z 2 w\u0119z\u0142ami",
+    "status": "success",
+    "metadata": {
+      "provider": "k3d",
+      "node_count": 2,
+      "agents": 1,
+      "servers": 1
+    }
+  },
+  {
     "id": "backup_create_testkindaaa_1763505266",
     "timestamp": "2025-11-18T23:34:26.316054",
     "operation_type": "backup_create",

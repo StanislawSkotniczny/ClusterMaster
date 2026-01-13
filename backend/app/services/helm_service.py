@@ -567,17 +567,36 @@ class HelmService:
     def install_or_upgrade_prometheus(self, cluster_name: str, namespace: str, context: str, node_port: int, upgrade: bool = False) -> Dict[str, Any]:
         """Zainstaluj lub zaktualizuj Prometheus"""
         
-        prometheus_values = {
-            "server": {
-                "service": {
-                    "type": "ClusterIP"
-                }
-            },
-            "alertmanager": {"enabled": False},
-            "pushgateway": {"enabled": False},
-            "nodeExporter": {"enabled": True},
-            "kubeStateMetrics": {"enabled": True}
-        }
+        # Sprawdź provider - dla k3d używamy NodePort, dla innych ClusterIP
+        _, provider = get_cluster_context_for_helm(cluster_name)
+        
+        if provider == "k3d":
+            # K3d wymaga NodePort żeby loadbalancer mógł przekierować ruch
+            prometheus_values = {
+                "server": {
+                    "service": {
+                        "type": "NodePort",
+                        "nodePort": node_port
+                    }
+                },
+                "alertmanager": {"enabled": False},
+                "pushgateway": {"enabled": True},
+                "nodeExporter": {"enabled": True},
+                "kubeStateMetrics": {"enabled": True}
+            }
+        else:
+            # Kind i inne - ClusterIP + port-forward
+            prometheus_values = {
+                "server": {
+                    "service": {
+                        "type": "ClusterIP"
+                    }
+                },
+                "alertmanager": {"enabled": False},
+                "pushgateway": {"enabled": True},
+                "nodeExporter": {"enabled": True},
+                "kubeStateMetrics": {"enabled": True}
+            }
         
         return self.install_or_upgrade_chart(
             release_name="prometheus",
@@ -621,24 +640,50 @@ class HelmService:
     def install_or_upgrade_grafana(self, cluster_name: str, namespace: str, context: str, node_port: int, upgrade: bool = False) -> Dict[str, Any]:
         """Zainstaluj lub zaktualizuj Grafana"""
         
-        grafana_values = {
-            "service": {
-                "type": "ClusterIP"
-            },
-            "adminPassword": "admin123",
-            "datasources": {
-                "datasources.yaml": {
-                    "apiVersion": 1,
-                    "datasources": [{
-                        "name": "Prometheus",
-                        "type": "prometheus",
-                        "url": f"http://prometheus-server.{namespace}.svc.cluster.local",
-                        "access": "proxy",
-                        "isDefault": True
-                    }]
+        # Sprawdź provider - dla k3d używamy NodePort, dla innych ClusterIP
+        _, provider = get_cluster_context_for_helm(cluster_name)
+        
+        if provider == "k3d":
+            # K3d wymaga NodePort żeby loadbalancer mógł przekierować ruch
+            grafana_values = {
+                "service": {
+                    "type": "NodePort",
+                    "nodePort": node_port
+                },
+                "adminPassword": "admin123",
+                "datasources": {
+                    "datasources.yaml": {
+                        "apiVersion": 1,
+                        "datasources": [{
+                            "name": "Prometheus",
+                            "type": "prometheus",
+                            "url": f"http://prometheus-server.{namespace}.svc.cluster.local",
+                            "access": "proxy",
+                            "isDefault": True
+                        }]
+                    }
                 }
             }
-        }
+        else:
+            # Kind i inne - ClusterIP + port-forward
+            grafana_values = {
+                "service": {
+                    "type": "ClusterIP"
+                },
+                "adminPassword": "admin123",
+                "datasources": {
+                    "datasources.yaml": {
+                        "apiVersion": 1,
+                        "datasources": [{
+                            "name": "Prometheus",
+                            "type": "prometheus",
+                            "url": f"http://prometheus-server.{namespace}.svc.cluster.local",
+                            "access": "proxy",
+                            "isDefault": True
+                        }]
+                    }
+                }
+            }
         
         return self.install_or_upgrade_chart(
             release_name="grafana",

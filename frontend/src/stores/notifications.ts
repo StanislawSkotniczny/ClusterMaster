@@ -37,7 +37,8 @@ export const useNotificationsStore = defineStore('notifications', () => {
         return notifications.value.slice(0, 10)
     })
 
-    // Connect to SSE stream
+
+
     const connect = (userId: string = 'default_user') => {
         if (eventSource.value) {
             console.log('[Notifications] Already connected')
@@ -47,31 +48,25 @@ export const useNotificationsStore = defineStore('notifications', () => {
         console.log('[Notifications] Connecting to SSE stream...')
 
         try {
-            // Create EventSource connection
             const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
             eventSource.value = new EventSource(`${baseUrl}/api/notifications/stream?user_id=${userId}`)
 
-            // Handle connection open
             eventSource.value.onopen = () => {
                 connected.value = true
                 console.log('[Notifications] SSE connection established')
             }
 
-            // Handle notification events
             eventSource.value.addEventListener('notification', (event: MessageEvent) => {
                 try {
                     const notification = JSON.parse(event.data) as Notification
                     console.log('[Notifications] Received notification:', notification)
 
-                    // Add to beginning of array
                     notifications.value.unshift(notification)
 
-                    // Keep only last 50 notifications
                     if (notifications.value.length > 50) {
                         notifications.value = notifications.value.slice(0, 50)
                     }
 
-                    // Show browser notification if permitted
                     showBrowserNotification(notification)
 
                 } catch (error) {
@@ -79,17 +74,14 @@ export const useNotificationsStore = defineStore('notifications', () => {
                 }
             })
 
-            // Handle ping/heartbeat
             eventSource.value.addEventListener('ping', () => {
                 console.log('[Notifications] Heartbeat received')
             })
 
-            // Handle errors
             eventSource.value.onerror = (error) => {
                 console.error('[Notifications] SSE error:', error)
                 connected.value = false
 
-                // Auto-reconnect after 5 seconds
                 disconnect()
                 setTimeout(() => {
                     console.log('[Notifications] Attempting to reconnect...')
@@ -218,6 +210,8 @@ export const useNotificationsStore = defineStore('notifications', () => {
         }
     }
 
+
+
     return {
         // State
         notifications,
@@ -238,3 +232,6 @@ export const useNotificationsStore = defineStore('notifications', () => {
         requestNotificationPermission
     }
 })
+
+
+

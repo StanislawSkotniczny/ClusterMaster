@@ -59,6 +59,10 @@ backend/terraform_states/*/
 .env.local
 .env.*.local
 
+# Firebase credentials
+firebase-credentials.json
+**/firebase-credentials.json
+
 # IDE
 .vscode/
 .idea/

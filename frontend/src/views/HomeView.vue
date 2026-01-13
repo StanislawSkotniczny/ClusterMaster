@@ -416,7 +416,7 @@
                     <div class="flex items-center space-x-2">
                       <span class="font-semibold text-gray-900 dark:text-white">{{ cluster.name }}</span>
                       <span class="text-xs bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded">EKS</span>
-                      <span class="text-xs text-gray-500 dark:text-gray-400">v{{ cluster.version }}</span>
+                      <span class="text-xs text-gray-500 dark:text-gray-400" v-if="cluster.kubernetes_version">v{{ cluster.kubernetes_version }}</span>
                     </div>
                     <p class="text-sm text-gray-600 dark:text-gray-400">Region: {{ awsStore.currentRegion }}</p>
                   </div>
@@ -955,7 +955,7 @@ const loadAwsClusters = async () => {
         status: cluster.status === 'ACTIVE' ? 'Running' : cluster.status,
         region: cluster.region,
         endpoint: cluster.endpoint,
-        version: cluster.version,
+        kubernetes_version: cluster.version,
         node_count: cluster.nodegroups?.[0]?.desiredSize || 0,
         monitoring: {
           installed: false // EKS monitoring is separate

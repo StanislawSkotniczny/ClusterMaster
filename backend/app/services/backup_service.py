@@ -622,8 +622,16 @@ nodes:
         
         try:
             with zipfile.ZipFile(backup_file, 'r') as zipf:
-                if 'backup_manifest.json' in zipf.namelist():
-                    manifest_content = zipf.read('backup_manifest.json').decode('utf-8')
+                # Szukaj manifestu - może być pod różnymi nazwami
+                manifest_names = ['backup_manifest.json', 'backup_info.json']
+                manifest_content = None
+                
+                for manifest_name in manifest_names:
+                    if manifest_name in zipf.namelist():
+                        manifest_content = zipf.read(manifest_name).decode('utf-8')
+                        break
+                
+                if manifest_content:
                     manifest = json.loads(manifest_content)
                     
                     # Add file information
@@ -637,11 +645,34 @@ nodes:
                         "success": True,
                         "backup_details": manifest
                     }
-            
-            return {
-                "success": False,
-                "error": "Backup manifest not found in archive"
-            }
+                
+                # Jeśli nie ma manifestu, utwórz podstawowe informacje z plików w archiwum
+                files = zipf.namelist()
+                resources = []
+                for f in files:
+                    if f.endswith('.yaml') or f.endswith('.yml'):
+                        parts = f.replace('.yaml', '').replace('.yml', '').split('_')
+                        if len(parts) >= 2:
+                            resources.append({
+                                "type": parts[-1],
+                                "namespace": parts[0] if parts[0] != 'cluster' else None,
+                                "scope": "namespaced" if parts[0] != 'cluster' else "cluster"
+                            })
+                
+                return {
+                    "success": True,
+                    "backup_details": {
+                        "backup_name": backup_name,
+                        "cluster_name": backup_name.split('_')[0] if '_' in backup_name else "unknown",
+                        "created_at": str(backup_file.stat().st_mtime),
+                        "resources": resources,
+                        "file_info": {
+                            "size_mb": round(backup_file.stat().st_size / (1024 * 1024), 2),
+                            "file_count": len(files),
+                            "files": files
+                        }
+                    }
+                }
             
         except Exception as e:
             return {

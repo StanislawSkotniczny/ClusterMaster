@@ -24,7 +24,7 @@ export interface ClusterInfo {
     kubernetes_version?: string  // Wersja Kubernetes
     created_at?: string  // Data utworzenia
     api_endpoint?: string  // Endpoint API
-    assigned_ports?: {
+    łassigned_ports?: {
         prometheus?: number
         grafana?: number
     }
@@ -115,12 +115,10 @@ export class ApiService {
         return response.json()
     }
 
-    // Health check
     static async healthCheck() {
         return this.request('/health')
     }
 
-    // Klastry lokalne
     static async listClusters(): Promise<{ clusters: string[] }> {
         return this.request('/local-cluster/list')
     }
@@ -152,7 +150,6 @@ export class ApiService {
         return this.request(`/local-cluster/${clusterName}/status`)
     }
 
-    // Debug endpoints
     static async debugDocker() {
         return this.request('/debug/docker')
     }
@@ -161,7 +158,6 @@ export class ApiService {
         return this.request('/debug/kind')
     }
 
-    // Monitoring
     static async installMonitoring(clusterName: string) {
         return this.request(`/monitoring/install/${clusterName}`, {
             method: 'POST',
@@ -352,7 +348,15 @@ export class ApiService {
         // Check if this is an EKS cluster
         if (config.provider === 'eks' && config.region && config.awsAccessKey && config.awsSecretKey) {
             // Use EKS-specific endpoint
-            const payload: any = {
+            const payload: {
+                region: string
+                aws_access_key: string
+                aws_secret_key: string
+                desired_size: number
+                min_size?: number
+                max_size?: number
+                instance_types?: string[]
+            } = {
                 region: config.region,
                 aws_access_key: config.awsAccessKey,
                 aws_secret_key: config.awsSecretKey,

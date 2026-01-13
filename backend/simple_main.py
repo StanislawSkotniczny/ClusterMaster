@@ -43,11 +43,10 @@ else:
 app_service = AppService()
 
 _cluster_cache = {}
-_cache_ttl_fast = timedelta(seconds=3)  # Szybkie cache dla list (3s)
-_cache_ttl_full = timedelta(seconds=2)  # Pełne cache dla szczegółów (2s)  
+_cache_ttl_fast = timedelta(seconds=3)  
+_cache_ttl_full = timedelta(seconds=2)  
 
 def get_from_cache(key: str, use_fast_ttl: bool = False) -> Optional[dict]:
-    """Pobierz wartość z cache jeśli jest aktualna"""
     if key in _cluster_cache:
         data, timestamp = _cluster_cache[key]
         ttl = _cache_ttl_fast if use_fast_ttl else _cache_ttl_full
@@ -56,15 +55,19 @@ def get_from_cache(key: str, use_fast_ttl: bool = False) -> Optional[dict]:
     return None
 
 def set_in_cache(key: str, data: dict):
-    """Zapisz wartość w cache"""
     _cluster_cache[key] = (data, datetime.now())
 
 app = FastAPI(title="ClusterMaster API", version="1.0.0")
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:5173", 
+        "http://localhost:5174", 
+        "http://localhost:3000",  
+        "http://localhost",       
+        "http://localhost:80"     
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -296,8 +299,6 @@ def get_basic_node_info(cluster_name: str) -> dict:
     }
 
 def detect_cluster_provider(cluster_name: str) -> str:
-    """Wykryj providera klastra (kind, k3d lub eks)"""
-    # Sprawdź czy to klaster EKS (sprawdź kubeconfig dla EKS ARN)
     try:
         result = subprocess.run(
             ["kubectl", "config", "get-contexts", "-o", "name"],
@@ -308,22 +309,19 @@ def detect_cluster_provider(cluster_name: str) -> str:
         
         if result.returncode == 0:
             contexts = result.stdout.strip().split('\n')
-            # Szukaj kontekstu EKS (zawiera nazwę klastra i wygląda jak ARN)
             for context in contexts:
                 if cluster_name in context and ('arn:aws:eks' in context or 'eks' in context.lower()):
                     return "eks"
     except Exception as e:
         print(f"Nie można sprawdzić kontekstów kubectl: {e}")
-    
-    # Sprawdź k3d clusters (z obsługą błędów)
+
     try:
         k3d_clusters = k3d_service.list_clusters()
         if cluster_name in k3d_clusters:
             return "k3d"
     except Exception as e:
         print(f"Nie można sprawdzić klastrów k3d: {e}")
-    
-    # Sprawdź kind clusters
+
     try:
         kind_result = run_kind_command(["get", "clusters"])
         if kind_result["returncode"] == 0 and cluster_name in kind_result["stdout"]:
@@ -331,16 +329,13 @@ def detect_cluster_provider(cluster_name: str) -> str:
     except Exception as e:
         print(f"Nie można sprawdzić klastrów Kind: {e}")
     
-    # Default to kind if unknown
     return "kind"
 
 def get_cluster_context(cluster_name: str, provider: str = None) -> str:
-    """Pobierz prawidłowy kontekst kubectl dla klastra"""
     if provider is None:
         provider = detect_cluster_provider(cluster_name)
     
     if provider == "eks":
-        # Dla EKS, znajdź pełny kontekst ARN
         try:
             result = subprocess.run(
                 ["kubectl", "config", "get-contexts", "-o", "name"],
@@ -357,18 +352,14 @@ def get_cluster_context(cluster_name: str, provider: str = None) -> str:
         except Exception as e:
             print(f"Nie można znaleźć kontekstu EKS: {e}")
     
-    # Dla kind i k3d użyj standardowego formatu
     return f"{provider}-{cluster_name}"
 
 def get_enhanced_node_info(cluster_name: str) -> dict:
-    """Pobierz rozszerzone informacje o węzłach używając Docker stats"""
     try:
-        # Wykryj provider klastra
         provider = detect_cluster_provider(cluster_name)
         context = get_cluster_context(cluster_name, provider)
         print(f"[get_enhanced_node_info] START for cluster={cluster_name}, provider={provider}, context={context}")
-        
-        # Przygotuj environment variables (dla EKS)
+
         env = os.environ.copy()
         if provider == "eks":
             credentials = eks_service.get_cluster_credentials(cluster_name)
@@ -379,7 +370,6 @@ def get_enhanced_node_info(cluster_name: str) -> dict:
                     "AWS_DEFAULT_REGION": credentials["region"]
                 })
         
-        # Najpierw pobierz nazwy węzłów
         nodes_result = subprocess.run([
             "kubectl", "get", "nodes", "--context", context,
             "-o", "json"
@@ -388,7 +378,6 @@ def get_enhanced_node_info(cluster_name: str) -> dict:
         if nodes_result.returncode != 0:
             return get_basic_node_info(cluster_name)
         
-        # Parse JSON response
         import json
         nodes_data = json.loads(nodes_result.stdout)
         
@@ -396,14 +385,12 @@ def get_enhanced_node_info(cluster_name: str) -> dict:
         for item in nodes_data['items']:
             node_name = item['metadata']['name']
             
-            # Sprawdź status
             status = "Unknown"
             for condition in item['status'].get('conditions', []):
                 if condition['type'] == 'Ready':
                     status = "Ready" if condition['status'] == 'True' else "NotReady"
                     break
-            
-            # Sprawdź rolę
+        
             labels = item['metadata'].get('labels', {})
             role = "worker"
             if 'node-role.kubernetes.io/control-plane' in labels:
@@ -558,7 +545,7 @@ async def get_cluster_details_async(cluster_name: str, include_resources: bool =
                     executor,
                     lambda: subprocess.run([
                         "kubectl", "get", "nodes", "--context", f"{provider}-{cluster_name}"
-                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=1)
+                    ], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
                 )
                 
                 if result.returncode == 0:
@@ -808,17 +795,9 @@ async def get_cluster_activity_log(cluster_name: str, limit: int = 10):
 
 @app.get("/api/notifications/stream")
 async def notification_stream(request: Request):
-    """
-    SSE endpoint for real-time notifications
-    
-    Server-Sent Events stream that pushes notifications to the client in real-time.
-    Each user gets their own notification queue.
-    """
-    # TODO: Get user_id from authentication
-    # For now, use a default user or extract from query params
+
     user_id = request.query_params.get("user_id", "default_user")
     
-    # Register user and get their queue
     queue = await notification_service.register_user(user_id)
     
     async def event_generator():
@@ -826,23 +805,19 @@ async def notification_stream(request: Request):
             print(f"[SSE] Client connected: {user_id}")
             
             while True:
-                # Check if client disconnected
                 if await request.is_disconnected():
                     print(f"[SSE] Client disconnected: {user_id}")
                     break
                 
                 try:
-                    # Wait for notification with timeout (30s heartbeat)
                     notification = await asyncio.wait_for(queue.get(), timeout=30.0)
                     
-                    # Send notification event
                     yield {
                         "event": "notification",
                         "data": json.dumps(notification)
                     }
                     
                 except asyncio.TimeoutError:
-                    # Send heartbeat ping to keep connection alive
                     yield {
                         "event": "ping",
                         "data": json.dumps({"timestamp": datetime.now().isoformat()})
@@ -851,7 +826,6 @@ async def notification_stream(request: Request):
         except Exception as e:
             print(f"[SSE] Error in event stream: {e}")
         finally:
-            # Cleanup: unregister user
             notification_service.unregister_user(user_id)
             print(f"[SSE] Cleaned up connection for: {user_id}")
     
@@ -860,7 +834,6 @@ async def notification_stream(request: Request):
 @app.get("/api/notifications/history")
 async def get_notification_history(limit: int = 20):
     """Get notification history for current user"""
-    # TODO: Get user_id from authentication
     user_id = "default_user"
     
     try:
@@ -3448,10 +3421,8 @@ async def apply_cluster_scaling(cluster_name: str, scaling_config: dict):
             # Add k3d operations to our log
             operations.extend(scale_result.get("operations", []))
             
-            # Get updated cluster info
-            cluster_info = k3d_service.get_cluster_info(cluster_name)
-            nodes = cluster_info.get("nodes", [])
-            agent_count = sum(1 for n in nodes if n.get("role") == "agent")
+            # Get agent count from scale_result (bardziej niezawodne niż ponowne pobieranie)
+            agent_count = scale_result.get("current_agents", worker_nodes)
             
             # Update log - success
             activity_log.update_operation_status(
@@ -3463,9 +3434,10 @@ async def apply_cluster_scaling(cluster_name: str, scaling_config: dict):
             
             # Send notification
             await notification_service.send_notification(
-                title="Klaster przeskalowany",
-                message=f"Klaster '{cluster_name}' został przeskalowany do {agent_count} węzłów (k3d LIVE scaling)",
+                user_id="default_user",
                 notification_type="cluster_scaled",
+                title="Klaster przeskalowany",
+                message=f"Klaster '{cluster_name}' został przeskalowany do {agent_count} węzłów worker (k3d LIVE scaling)",
                 severity="success",
                 metadata={"cluster": cluster_name, "provider": "k3d", "nodes": agent_count}
             )

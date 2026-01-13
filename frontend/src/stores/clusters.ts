@@ -25,7 +25,6 @@ export const useClustersStore = defineStore('clusters', () => {
     const clusterCount = computed(() => clusters.value.length)
 
     async function fetchClusters(silent = false) {
-        // Use isRefreshing for background updates, isLoading only for initial load
         if (!silent && clusters.value.length === 0) {
             isLoading.value = true
         } else {
@@ -34,7 +33,7 @@ export const useClustersStore = defineStore('clusters', () => {
         error.value = null
 
         try {
-            const data = await ApiService.getClusters(true) // Include resources for monitoring
+            const data = await ApiService.getClusters(true)
             clusters.value = data
             lastUpdate.value = new Date()
             return data
@@ -54,7 +53,6 @@ export const useClustersStore = defineStore('clusters', () => {
         }
 
         refreshInterval = window.setInterval(() => {
-            // Silent refresh - don't show loading spinner
             fetchClusters(true)
         }, intervalMs)
     }

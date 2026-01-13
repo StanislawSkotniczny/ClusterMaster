@@ -15,6 +15,7 @@ class PortManager:
         self.port_file_path = Path(port_file_path)
         self.base_prometheus_port = 30090
         self.base_grafana_port = 30030
+        self.base_api_port = 6550  # Port API dla k3d
         self.port_increment = 10  # Różnica między portami dla różnych klastrów
         
     def _load_port_assignments(self) -> Dict[str, Dict[str, int]]:
@@ -34,40 +35,45 @@ class PortManager:
             json.dump(assignments, f, indent=2)
     
     def _is_port_available(self, port: int) -> bool:
-        """Sprawdź czy port jest dostępny"""
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 sock.settimeout(1)
                 result = sock.connect_ex(('localhost', port))
-                return result != 0  # Port dostępny jeśli połączenie nie powiodło się
+                return result != 0  
         except:
             return True
     
     def _find_next_available_port_pair(self, used_ports: List[int]) -> Tuple[int, int]:
-        """
-        Znajdź następną dostępną parę portów (prometheus, grafana)
-        
-        Returns:
-            Tuple[prometheus_port, grafana_port]
-        """
         prometheus_port = self.base_prometheus_port
         grafana_port = self.base_grafana_port
         
         while True:
-            # Sprawdź czy oba porty są dostępne
+            
             if (prometheus_port not in used_ports and 
                 grafana_port not in used_ports and
                 self._is_port_available(prometheus_port) and 
                 self._is_port_available(grafana_port)):
                 return prometheus_port, grafana_port
             
-            # Przejdź do następnej pary portów
             prometheus_port += self.port_increment
             grafana_port += self.port_increment
             
-            # Zabezpieczenie przed nieskończoną pętlą
-            if prometheus_port > 32767:  # Maksymalny port NodePort w K8s
+            
+            if prometheus_port > 32767: 
                 raise Exception("Brak dostępnych portów w zakresie NodePort")
+    
+    def _find_next_available_api_port(self, used_ports: List[int]) -> int:
+        """Znajdź następny dostępny port API dla k3d"""
+        api_port = self.base_api_port
+        
+        while True:
+            if api_port not in used_ports and self._is_port_available(api_port):
+                return api_port
+            
+            api_port += 1
+            
+            if api_port > 6600:  # Limit dla portów API
+                raise Exception("Brak dostępnych portów API dla k3d")
     
     def assign_ports_for_cluster(self, cluster_name: str) -> Dict[str, int]:
         """
@@ -77,7 +83,7 @@ class PortManager:
             cluster_name: Nazwa klastra
             
         Returns:
-            Dict z portami: {"prometheus": port, "grafana": port}
+            Dict z portami: {"prometheus": port, "grafana": port, "api": port}
         """
         assignments = self._load_port_assignments()
         
@@ -87,16 +93,21 @@ class PortManager:
         
         # Zbierz wszystkie używane porty
         used_ports = []
+        used_api_ports = []
         for cluster_ports in assignments.values():
-            used_ports.extend(cluster_ports.values())
+            used_ports.extend([cluster_ports.get('prometheus', 0), cluster_ports.get('grafana', 0)])
+            if 'api' in cluster_ports:
+                used_api_ports.append(cluster_ports['api'])
         
         # Znajdź dostępne porty
         prometheus_port, grafana_port = self._find_next_available_port_pair(used_ports)
+        api_port = self._find_next_available_api_port(used_api_ports)
         
         # Zapisz nowe przypisanie
         assignments[cluster_name] = {
             "prometheus": prometheus_port,
-            "grafana": grafana_port
+            "grafana": grafana_port,
+            "api": api_port
         }
         
         self._save_port_assignments(assignments)
